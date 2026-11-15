@@ -125,24 +125,53 @@ int main(void) {
     for (int i = 0; i < 5; ++i) press(XM_IN_DOWN_CLICK);
     dump_view("05_market_ready", &g_app);
 
-    /* 出摊 → 收工报告 */
+    /* 出摊 → 回主面板。一天 24 小时能打多份工，干完一份不自动收工。 */
     press(XM_IN_OK_CLICK);
-    dump_view("06_report", &g_app);
+    dump_view("06_home_after_work", &g_app);
+
+    /* 同一天再打一份日结：工时从 5 累到 13，能睡的时间剩 11 小时 */
+    press(XM_IN_OK_CLICK);                            /* 去干活 → 职业线 */
+    press(XM_IN_DOWN_CLICK);
+    press(XM_IN_DOWN_CLICK);                          /* 摆摊 → 外卖 → 日结 */
+    press(XM_IN_OK_CLICK);                            /* 进日结页 */
+    dump_view("07_gig", &g_app);
+    press(XM_IN_OK_CLICK);                            /* 上工 8 小时 → 回首页 */
+    dump_view("08_home_multi", &g_app);
+
+    /* 主动收工才结算 */
+    g_app.sel = FB_MENU_ENDDAY;
+    press(XM_IN_OK_CLICK);
+    dump_view("09_report", &g_app);
 
     /* 报告 → 若当天有事件则事件页；否则推进到次日首页 */
     press(XM_IN_OK_CLICK);
     if (g_app.scr == FB_SCR_EVENT) {
-        dump_view("07_event", &g_app);
+        dump_view("10_event", &g_app);
         press(XM_IN_OK_CLICK);
     }
-    dump_view("08_next_home", &g_app);
+    dump_view("11_next_home", &g_app);
+
+    /* 熬夜到快垮的样子：工时 22 小时、欠觉 5 天、白天撑不住。
+     * 这张是给"睡眠剥夺"这套机制看的门面图。 */
+    fb_app_init(&g_app, 20261115u);
+    press(XM_IN_OK_CLICK);
+    g_app.st.hours_used = 22;
+    g_app.st.last_sleep = 2;
+    g_app.st.sleep_debt = 5;
+    g_app.st.drowsy = FB_DROWSY_CRITICAL;
+    g_app.st.health = 26;
+    g_app.st.stamina = 14;
+    g_app.st.cash = 4180;
+    g_app.st.day = 37;
+    g_app.toast[0] = '\0';
+    dump_view("12_home_exhausted", &g_app);
 
     /* 玩法说明 */
     fb_app_init(&g_app, 20261115u);
     press(XM_IN_OK_CLICK);   /* 进首页 */
-    for (int i = 0; i < 5; ++i) press(XM_IN_DOWN_CLICK);   /* 到“玩法说明” */
+    for (int i = 0; i < 5; ++i) press(XM_IN_DOWN_CLICK);   /* 到"玩法说明" */
     press(XM_IN_OK_CLICK);
-    dump_view("09_about", &g_app);
+    dump_view("13_about", &g_app);
 
     /* 结局页：直接把状态推到结束 */
     fb_app_init(&g_app, 20261115u);
@@ -151,7 +180,7 @@ int main(void) {
     g_app.st.day = FB_TOTAL_DAYS;
     g_app.st.cash = 15300;
     g_app.scr = FB_SCR_ENDING;
-    dump_view("10_ending", &g_app);
+    dump_view("14_ending", &g_app);
 
     return 0;
 }

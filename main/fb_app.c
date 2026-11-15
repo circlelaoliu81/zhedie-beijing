@@ -189,6 +189,32 @@ static void draw_scene(xm_view_t *v, fb_scene_id_t id) {
     v_rect(v, 0, FB_SCENE_Y + FB_SCENE_H, 240, 2, 0x090C12u, true);
 }
 
+/* 一天的账本角标：上面一行是干了几小时，下面一行是今晚能睡几小时 + 白天困不困。
+ * 240x320 的内容区被数据卡和菜单吃满，这两条硬信息只能压进场景图 ——
+ * 深底叠在画面右下角，十张场景图在那个位置都是暗部，压上去不遮主体。
+ * 工时行：没干满橙色，24 小时干满转红；睡眠行：睡够青、犯困黄、撑不住红。 */
+static void draw_hours(fb_app_t *app, xm_view_t *v) {
+    const fb_state_t *st = &app->st;
+    uint8_t left = fb_hours_left(st);
+    uint8_t sleep = fb_sleep_hours(st);
+    int x = 130;
+    int y = FB_SCENE_Y + FB_SCENE_H - 36;   /* 94..126，落在场景图内 */
+    v_rect(v, x, y, 104, 30, 0x0B0E14u, true);
+
+    uint32_t work_fg = left == 0 ? XM_COLOR_RED : FB_COLOR_ACCENT;
+    v_line(v, x + 5, y + 2, 94, 12, work_fg, XM_ALIGN_LEFT,
+           pool_put(app, "已干 %u 小时", (unsigned)st->hours_used));
+
+    /* 颜色和文字双通道：睡够灰、缺觉黄、危险红，同时把瞌睡等级写在后面 ——
+     * 状态条只有 12px 一行，颜色看趋势、文字看等级，两个都得有。 */
+    uint32_t sleep_fg = XM_COLOR_SUBINK;
+    if (sleep < FB_SLEEP_CRIT) sleep_fg = XM_COLOR_RED;
+    else if (sleep < FB_SLEEP_OK || st->drowsy != FB_DROWSY_NONE) sleep_fg = FB_COLOR_WARN;
+    v_line(v, x + 5, y + 16, 94, 12, sleep_fg, XM_ALIGN_LEFT,
+           pool_put(app, "睡 %u 时 · %s", (unsigned)sleep,
+                    fb_drowsy_label(st->drowsy)));
+}
+
 /* 状态条：图标 + 日期。右上角电量由 xm_status 负责，这里只用到 x=176。 */
 static void draw_status(fb_app_t *app, xm_view_t *v, fb_icon_id_t icon,
                         const char *text) {
@@ -321,6 +347,7 @@ static void render_home(fb_app_t *app, xm_view_t *v) {
     const fb_state_t *st = &app->st;
     draw_status(app, v, FB_ICO_CAL, pool_put(app, "第 %d 天 / 100", st->day));
     draw_scene(v, FB_SC_HOME);
+    draw_hours(app, v);
 
     /* 现金：大数字 + 图标，是玩家最常看的一个数 */
     v_icon(v, FB_ICO_CASH, 8, 137);
@@ -348,7 +375,9 @@ static void render_home(fb_app_t *app, xm_view_t *v) {
         draw_card(app, v, 6 + col * 118, 188 + row * 34, 110, 30,
                   app->sel == i, true, menu_icon(i), pool_raw(app, menu_label(i)));
     }
-    draw_hint(app, v, "↑↓←→ 选择    OK 确定");
+    /* 底部这一行优先给「上一次干活的结果」：一天能连打几份工，
+     * 玩家必须看到上一单挣了多少、扣了什么，否则连干三份是在盲赌。 */
+    draw_hint(app, v, app->toast[0] ? app->toast : "↑↓←→ 选择    OK 确定");
 }
 
 static void render_lines(fb_app_t *app, xm_view_t *v) {
@@ -356,6 +385,7 @@ static void render_lines(fb_app_t *app, xm_view_t *v) {
     const fb_line_meta_t *meta = fb_line_table(&n);
     draw_status(app, v, FB_ICO_WORK, "去哪儿挣钱");
     draw_scene(v, FB_SC_HOME);
+    draw_hours(app, v);
 
     /* 选中项展开成两行卡片，其余压到 26。五条线全展开需要 5x40=200，
      * 152 的内容区放不下，展开式让描述有地方待又不挤。 */
@@ -384,6 +414,7 @@ static void render_market(fb_app_t *app, xm_view_t *v) {
     draw_status(app, v, FB_ICO_BOX,
                 pool_put(app, "库存 %u/%u", st->inv_total, st->storage));
     draw_scene(v, FB_SC_MARKET);
+    draw_hours(app, v);
 
     /* 货品是 5 种不是 4 种：原先按 4 种算的行距让最后一张「出摊」压到了
      * 底部提示行上。22 高 x 5 + 出摊卡 28，总高 148 正好落在 134..282。 */
@@ -404,13 +435,15 @@ static void render_gig(fb_app_t *app, xm_view_t *v) {
     const fb_gig_t *gigs = fb_gig_table(&n);
     draw_status(app, v, FB_ICO_BOLT, "日结零工");
     draw_scene(v, FB_SC_GIG);
+    draw_hours(app, v);
 
+    /* 6 个工种要塞进 134..286 这 152px：每项 23 高、行距 25，名称/工资/体力压成一行。
+     * 早先按 42 行距排（每项占标题+描述两行），最后两项直接排到了屏幕外面。 */
     for (uint8_t i = 0; i < (uint8_t)n; ++i) {
-        int y = 136 + i * 42;
-        draw_card(app, v, 6, y, 228, 36, app->sel == i, true, FB_ICO_BOLT,
-                  pool_put(app, "%s  ¥%d", gigs[i].name, (int)gigs[i].wage));
-        v_line(v, 32, y + 20, 196, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
-               pool_put(app, "%s · 耗精力 %u", gigs[i].note, gigs[i].stamina));
+        int y = 134 + i * 25;
+        draw_card(app, v, 6, y, 228, 23, app->sel == i, true, FB_ICO_BOLT,
+                  pool_put(app, "%s ¥%d · 精力%u", gigs[i].name,
+                           (int)gigs[i].wage, gigs[i].stamina));
     }
     draw_hint(app, v, "↑↓ 选工种    OK 上工");
 }
@@ -420,6 +453,7 @@ static void render_topic(fb_app_t *app, xm_view_t *v) {
     const fb_topic_t *tp = fb_topic_table(&n);
     draw_status(app, v, FB_ICO_STAR, pool_put(app, "粉丝 %u", app->st.fans));
     draw_scene(v, FB_SC_LIVE);
+    draw_hours(app, v);
 
     for (uint8_t i = 0; i < (uint8_t)n; ++i) {
         int y = 134 + i * 38;
@@ -439,6 +473,7 @@ static void render_vehicle(fb_app_t *app, xm_view_t *v, uint8_t line) {
     fb_icon_id_t ic = line == FB_LINE_DELIVERY ? FB_ICO_BOX : FB_ICO_CARD;
     draw_status(app, v, ic, line == FB_LINE_DELIVERY ? "送外卖" : "网约车");
     draw_scene(v, line == FB_LINE_DELIVERY ? FB_SC_DELIVERY : FB_SC_RIDE);
+    draw_hours(app, v);
 
     if (!unlocked) {
         draw_para(app, v, 8, 140,
@@ -463,7 +498,8 @@ static void render_vehicle(fb_app_t *app, xm_view_t *v, uint8_t line) {
         draw_bar(v, 8, 212, 224, 6, st->stamina,
                  st->stamina < 20 ? FB_COLOR_WARN : FB_COLOR_ACCENT);
         v_line(v, 8, 222, 224, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
-               pool_put(app, "精力 %d · 工时 %u/16", st->stamina, st->hours_used));
+               pool_put(app, "精力 %d/100 · 还能干 %u 小时", st->stamina,
+                        (unsigned)fb_hours_left(st)));
     }
     draw_hint(app, v, "OK 确定    长按返回");
 }
@@ -519,10 +555,27 @@ static void render_report(fb_app_t *app, xm_view_t *v) {
     v_icon(v, FB_ICO_CARD, 124, 169);
     v_line(v, 146, 167, 84, 16, FB_COLOR_WARN, XM_ALIGN_LEFT,
            pool_put(app, "-%d", (int)st->day_spent));
-    v_line(v, 8, 190, 224, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
-           pool_raw(app, "今日收支"));
 
-    draw_para(app, v, 8, 208, app->toast, FB_SMALL_W, 18, 12, XM_COLOR_INK, 4);
+    /* 这一天的账要连着睡眠一起交代：干了几小时、睡了几小时、欠几天觉、白天困不困。
+     * 玩家熬夜换来的钱，必须在这里看到它的代价。 */
+    v_line(v, 8, 188, 224, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
+           pool_put(app, "干了 %u 小时，睡 %u 小时",
+                    (unsigned)st->hours_used, (unsigned)st->last_sleep));
+    v_line(v, 8, 204, 224, 12,
+           st->sleep_debt >= 4 ? XM_COLOR_RED
+                               : (st->sleep_debt ? FB_COLOR_WARN : XM_COLOR_SUBINK),
+           XM_ALIGN_LEFT,
+           pool_put(app, "欠觉 %u 天 · 健康 %d · %s", (unsigned)st->sleep_debt,
+                    st->health, fb_drowsy_label(st->drowsy)));
+
+    /* 当日语录：亏了给丧的陪着丧，挣了给毒鸡汤扎一刀。这是《活着》的底色。 */
+    int32_t net = st->day_earned - st->day_spent;
+    uint8_t qk = fb_quote_daily_kind(st->day, 1, net);
+    draw_para(app, v, 8, 222, fb_quote_daily(st->day, 1, net), FB_SMALL_W, 15, 12,
+              qk == FB_QUOTE_SANG ? XM_COLOR_SUBINK : FB_COLOR_ACCENT, 2);
+
+    /* 明细（吃饭/交通/房租/过劳……）塞不下就让 draw_para 截断 */
+    draw_para(app, v, 8, 254, app->toast, FB_SMALL_W, 15, 12, XM_COLOR_INK, 2);
     draw_hint(app, v, "OK 继续");
 }
 
@@ -560,12 +613,11 @@ static void render_ending(fb_app_t *app, xm_view_t *v) {
 static void render_about(fb_app_t *app, xm_view_t *v) {
     draw_status(app, v, FB_ICO_INFO, "玩法说明");
     draw_scene(v, FB_SC_HOME);
+    /* 说明页只放得下 6 行 x 13 字 = 78 字，多一个标点都会被截断 */
     static const char *k_help =
-        "一百天里靠五条活路挣钱：摆摊、外卖、日结零工、网约车、直播。"
-        "房租每三十天扣一次，欠债每天滚利息。"
-        "健康掉到零，故事就结束。"
-        "摆摊和日结零门槛；外卖要车、网约车要押金、直播要设备，"
-        "钱不够就去借钱周转。";
+        "一百天，五条活路：摆摊、外卖、日结、网约车、直播。"
+        "一天 24 小时，干了活就没得睡：睡不够掉健康，连着缺觉会犯困掉钱，再撑就晕倒。"
+        "健康到零，故事结束。";
     draw_para(app, v, 8, 140, k_help, FB_BODY_W, 22, 16, XM_COLOR_INK, 6);
     draw_hint(app, v, "长按返回");
 }
@@ -634,7 +686,8 @@ static uint8_t page_item_count(const fb_app_t *app) {
     }
 }
 
-/* 该线今天还能不能干：前置条件不满足时停在原页并给理由 */
+/* 该线今天还能不能干：前置条件不满足时停在原页并给理由。
+ * 工时需求统一从 fb_line_hours() 取，不在这一层另抄一份数字。 */
 static bool can_run(fb_app_t *app, uint8_t line) {
     const fb_state_t *st = &app->st;
     if (!fb_line_unlocked(st, line)) {
@@ -642,28 +695,27 @@ static bool can_run(fb_app_t *app, uint8_t line) {
                  fb_unlock_hint(line));
         return false;
     }
-    uint8_t need = 0;
-    switch (line) {
-        case FB_LINE_MARKET:
-            need = 5;
-            if (st->inv_total == 0) {
-                snprintf(app->toast, sizeof(app->toast), "没进货，摊子支不起来");
-                return false;
-            }
-            break;
-        case FB_LINE_DELIVERY: need = 6; break;
-        case FB_LINE_GIG: need = 8; break;
-        case FB_LINE_RIDE: need = 8; break;
-        case FB_LINE_LIVE: need = 3; break;
-        default: return false;
+    uint8_t need = fb_line_hours(line);
+    if (need == 0) return false;
+    if (line == FB_LINE_MARKET && st->inv_total == 0) {
+        snprintf(app->toast, sizeof(app->toast), "没进货，摊子支不起来");
+        return false;
     }
     if (fb_hours_left(st) < need) {
         snprintf(app->toast, sizeof(app->toast),
-                 "今天只剩 %u 小时，这活得 %u 小时",
+                 "今天只剩 %u 小时，这活要 %u 小时",
                  (unsigned)fb_hours_left(st), (unsigned)need);
         return false;
     }
     return true;
+}
+
+/* 干完一份活不结算 —— 一天 24 小时可以拆成多份工（外卖 6 + 日结 8 + 摆摊 5 + 直播 3）。
+ * 什么时候收工由玩家自己决定：多干一份就少睡一小时，账记在睡眠上，不在这里拦。
+ * 干完回主面板，底部那一行正好显示这一单的结果。 */
+static void back_to_home_after_work(fb_app_t *app) {
+    app->scr = FB_SCR_HOME;
+    app->home_sel = app->sel = FB_MENU_WORK;
 }
 
 /* 结算 → 抽事件 → 推进/结束。所有“今天到此为止”的入口共用。 */
@@ -678,9 +730,16 @@ static void advance_after_event(fb_app_t *app) {
     if (fb_check_end(&app->st)) {
         app->scr = FB_SCR_ENDING;
     } else {
+        /* 新的一天开头不保留昨天那一单的流水，但欠觉这件事必须继续顶在眼前 */
+        app->toast[0] = '\0';
+        if (app->st.sleep_debt >= 4) {
+            snprintf(app->toast, sizeof(app->toast), "欠觉 %u 天，人快垮了",
+                     (unsigned)app->st.sleep_debt);
+        } else if (app->st.recovering) {
+            snprintf(app->toast, sizeof(app->toast), "昨儿晕倒过，今天只剩半天");
+        }
         app->scr = FB_SCR_HOME;
-        app->sel = 0;
-        app->line_sel = 0;
+        app->sel = app->home_sel;
     }
 }
 
@@ -736,7 +795,17 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
         case FB_SCR_HOME:
             app->home_sel = app->sel;   /* 记住光标，返回时不必从头找 */
             switch (app->sel) {
-                case FB_MENU_WORK: app->scr = FB_SCR_LINES; app->sel = 0; break;
+                case FB_MENU_WORK:
+                    /* 干不动了就别让玩家白跑一趟：直接点明今天只能收工了 */
+                    if (fb_hours_left(&app->st) == 0) {
+                        snprintf(app->toast, sizeof(app->toast),
+                                 "24 小时干满了，去收工睡觉");
+                        break;
+                    }
+                    /* 记住上次去的线，一天连干几份不用每次从头翻 */
+                    app->scr = FB_SCR_LINES;
+                    app->sel = app->line_sel;
+                    break;
                 case FB_MENU_REST:
                     fb_rest(&app->st);
                     finish_day(app);
@@ -772,7 +841,7 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
                         }
                     } else if (can_run(app, FB_LINE_MARKET)) {
                         fb_run_market(&app->st, app->toast, sizeof(app->toast));
-                        finish_day(app);
+                        back_to_home_after_work(app);
                     }
                     break;
 
@@ -784,7 +853,7 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
                         }
                     } else if (can_run(app, FB_LINE_DELIVERY)) {
                         fb_run_delivery(&app->st, app->toast, sizeof(app->toast));
-                        finish_day(app);
+                        back_to_home_after_work(app);
                     }
                     break;
 
@@ -792,7 +861,7 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
                     if (can_run(app, FB_LINE_GIG)) {
                         fb_run_gig(&app->st, app->sel, app->toast,
                                    sizeof(app->toast));
-                        finish_day(app);
+                        back_to_home_after_work(app);
                     }
                     break;
 
@@ -804,7 +873,7 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
                         }
                     } else if (can_run(app, FB_LINE_RIDE)) {
                         fb_run_ride(&app->st, app->toast, sizeof(app->toast));
-                        finish_day(app);
+                        back_to_home_after_work(app);
                     }
                     break;
 
@@ -817,7 +886,7 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
                     } else if (can_run(app, FB_LINE_LIVE)) {
                         fb_run_live(&app->st, app->sel, app->toast,
                                     sizeof(app->toast));
-                        finish_day(app);
+                        back_to_home_after_work(app);
                     }
                     break;
 

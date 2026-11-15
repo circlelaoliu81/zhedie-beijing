@@ -16,8 +16,30 @@
 #define FB_GIG_COUNT         6
 #define FB_TOPIC_COUNT       4
 #define FB_LINE_COUNT        5
-#define FB_EVENT_POOL        18
+#define FB_EVENT_POOL        20   /* 18 条常规 + 2 条瞌睡专属（见 EV_IDX_DROWSY_*）*/
 #define FB_LOG_SIZE          160
+
+/* 一天 24 小时 = 干活 + 睡觉。
+ * 这不是「工时上限」，而是这一天的全部时间：干 18 小时就只剩 6 小时睡。
+ * 睡不够按档扣健康并累积睡眠债，债多了白天犯困（收入打折、意外变多），
+ * 再顶着干就会晕倒。想多挣只能从睡觉里抠 —— 这是本作唯一的真资源。 */
+#define FB_DAY_HOURS         24
+/* 睡眠分档：>=8 睡够，6~8 欠一点，4~6 明显缺，2~4 严重缺，<2 通宵 */
+#define FB_SLEEP_OK          8
+#define FB_SLEEP_SHORT       6
+#define FB_SLEEP_CRIT        4
+#define FB_SLEEP_NONE        2
+/* 睡眠债最多记 7 天，封顶防止无限叠加 */
+#define FB_SLEEP_DEBT_MAX    7
+/* 工时超过这个数开始算加班透支（日结算按超标比例抽一次健康事件） */
+#define FB_OVERTIME_HOURS    14
+
+/* 瞌睡等级：0 精神 / 1 犯困 / 2 撑不住 */
+typedef enum {
+    FB_DROWSY_NONE = 0,
+    FB_DROWSY_TIRED,
+    FB_DROWSY_CRITICAL
+} fb_drowsy_t;
 
 /* 职业线枚举：与 UI 上「上/下」翻页顺序一致 */
 typedef enum {
@@ -116,7 +138,7 @@ typedef struct {
     uint8_t has_gear;
     uint8_t has_car;
     uint8_t has_live;
-    uint8_t hours_used;      /* 今日已消耗工时（上限 16） */
+    uint8_t hours_used;      /* 今日已干的小时数（0..FB_DAY_HOURS），剩余时间都在睡 */
     uint8_t inv[FB_KIND_COUNT];
     uint8_t inv_total;
     uint8_t family_used;     /* 第二条命一局一次 */
@@ -126,12 +148,17 @@ typedef struct {
     uint8_t bg;              /* 开局背景序号 */
     uint8_t ending;          /* fb_ending_t */
     uint8_t today_lines;     /* 今日已干过的线位图 */
+    /* —— 睡眠剥夺链 —— */
+    uint8_t last_sleep;      /* 昨夜实际睡了几小时（= FB_DAY_HOURS - 昨日工时） */
+    uint8_t sleep_debt;      /* 连续缺觉天数 0..FB_SLEEP_DEBT_MAX */
+    uint8_t drowsy;          /* fb_drowsy_t：白天瞌睡等级 */
+    uint8_t faint_cnt;       /* 本局晕倒次数 */
+    uint8_t recovering;      /* 晕倒后第二天只能干半天，1 = 生效中 */
     int32_t day_earned;
     int32_t day_spent;
     /* 摆摊当日需求：regen 时按点×货品生成 */
     uint8_t demand[FB_KIND_COUNT];
     uint8_t spot;            /* 摆摊点序号 */
-    int16_t quote_idx;       /* 每日语录轮换 */
 } fb_state_t;
 
 /* —— 数据访问 —— */
@@ -143,12 +170,25 @@ const fb_line_meta_t *fb_line_table(size_t *n);
 const fb_event_t *fb_event_table(size_t *n);
 const char *fb_end_title(uint8_t ending);
 const char *fb_end_text(uint8_t ending);
-const char *fb_quote(int32_t idx);
 const char *fb_news(int32_t idx, uint32_t seed);
-size_t fb_quote_count(void);
 size_t fb_news_count(void);
 const char *fb_spot_name(uint8_t spot);
 size_t fb_spot_count(void);
+
+/* —— 每日语录 ——
+ * 两个池子各 18 条：丧丧语录（低气压、北漂真实体感）与心灵毒鸡汤（把安慰拧成扎心）。
+ * 分两个槽位，保证同一天不会看到同一句：
+ *   slot 0 = 当天开场横幅（按天数奇偶交替两个池子）
+ *   slot 1 = 日终旁白（按当日盈亏选语气：亏了陪着丧，挣了扎一刀）
+ * fb_quote_daily_kind() 返回 0=丧 / 1=毒鸡汤，UI 据此换颜色。 */
+typedef enum {
+    FB_QUOTE_SANG = 0,
+    FB_QUOTE_POISON = 1
+} fb_quote_kind_t;
+
+const char *fb_quote_daily(int16_t day, uint8_t slot, int32_t net_today);
+uint8_t fb_quote_daily_kind(int16_t day, uint8_t slot, int32_t net_today);
+size_t fb_quote_count(uint8_t kind);
 
 /* —— 生命周期 —— */
 void fb_init(fb_state_t *st, uint8_t bg, uint32_t seed);
@@ -163,9 +203,17 @@ bool fb_chance(fb_state_t *st, uint32_t pct);
 /* —— 派生数值 —— */
 int32_t fb_net_worth(const fb_state_t *st);
 int32_t fb_inv_value(const fb_state_t *st);
+/* 今天还剩几小时能干（= FB_DAY_HOURS - hours_used，剩下的时间就是睡觉时间） */
 uint8_t fb_hours_left(const fb_state_t *st);
+/* 按当前工时推算「今晚能睡几小时」。干满 24 小时 = 0，通宵。 */
+uint8_t fb_sleep_hours(const fb_state_t *st);
+/* 该线干一次要几小时：摆摊 5 / 外卖 6 / 日结 8 / 网约车 8 / 直播 3。
+ * UI 层据此判断「今天还够不够再打一份工」，不许另抄一份数字。 */
+uint8_t fb_line_hours(uint8_t line);
 bool fb_line_unlocked(const fb_state_t *st, uint8_t line);
 const char *fb_unlock_hint(unsigned line);
+/* 瞌睡等级的中文标签（精神/犯困/撑不住），UI 直接贴 */
+const char *fb_drowsy_label(uint8_t drowsy);
 
 /* —— 融资 —— */
 bool fb_cashout(fb_state_t *st, int32_t amount);

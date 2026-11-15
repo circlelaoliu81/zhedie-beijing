@@ -142,7 +142,7 @@ int main(void) {
     press(&app, XM_IN_OK_LONG);
     assert(app.scr == FB_SCR_HOME);
 
-    /* 走一遍摆摊：进货 6 份 → 出摊 → 收工 */
+    /* 走一遍摆摊：进货 6 份 → 出摊。干完不结算，回主面板继续干第二份 */
     app.sel = FB_MENU_WORK;
     press(&app, XM_IN_OK_CLICK);        /* lines */
     app.sel = FB_LINE_MARKET;
@@ -154,9 +154,31 @@ int main(void) {
     app.sel = FB_KIND_COUNT;            /* "出摊卖货" */
     snap("market_ready", &app);
     press(&app, XM_IN_OK_CLICK);
-    assert(app.scr == FB_SCR_REPORT);
+    /* 关键契约：出摊后回主面板，不自动收工 —— 一天 24 小时能打多份工 */
+    assert(app.scr == FB_SCR_HOME);
+    assert(app.st.hours_used == 5);
     assert(app.st.day_earned > 0);
+    snap("home_after_work", &app);
+
+    /* 同一天再干一份日结：工时累加上去，剩余睡眠时间随之减少 */
+    app.sel = FB_MENU_WORK;
+    press(&app, XM_IN_OK_CLICK);        /* lines，光标应回到上次的线 */
+    assert(app.sel == FB_LINE_MARKET);
+    app.sel = FB_LINE_GIG;
+    press(&app, XM_IN_OK_CLICK);        /* gig action */
+    snap("gig", &app);
+    press(&app, XM_IN_OK_CLICK);        /* 上工 8 小时 */
+    assert(app.scr == FB_SCR_HOME);
+    assert(app.st.hours_used == 13);
+    assert(fb_sleep_hours(&app.st) == 11);
+    assert(app.st.day == 1);            /* 还是同一天 */
+
+    /* 收工才结算 */
+    app.sel = FB_MENU_ENDDAY;
+    press(&app, XM_IN_OK_CLICK);
+    assert(app.scr == FB_SCR_REPORT);
     snap("report", &app);
+    assert(app.st.last_sleep == 11);
 
     /* 收工后：有事件则进事件页，否则直接次日 */
     press(&app, XM_IN_OK_CLICK);

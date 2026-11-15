@@ -21,9 +21,12 @@ FONT_PATH = "/System/Library/Fonts/Hiragino Sans GB.ttc"
 ART = Path(__file__).resolve().parents[2] / "assets" / "art"
 TITLES = {
     "01_intro": "封面", "02_home": "主面板", "03_lines": "选行当",
-    "04_market": "摆摊进货", "05_market_ready": "备好货", "06_report": "收工结算",
-    "07_event": "随机事件", "08_next_home": "次日", "09_about": "玩法说明",
-    "10_ending": "结局",
+    "04_market": "摆摊进货", "05_market_ready": "备好货",
+    "06_home_after_work": "干完一份回主面板", "07_gig": "日结零工",
+    "08_home_multi": "同一天第二份工", "09_report": "收工结算",
+    "10_event": "随机事件", "11_next_home": "次日",
+    "12_home_exhausted": "熬夜到快垮", "13_about": "玩法说明",
+    "14_ending": "结局",
 }
 _cache = {}
 
