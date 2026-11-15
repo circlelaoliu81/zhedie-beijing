@@ -1,0 +1,160 @@
+{
+  "generator": "tools/xm/make_fb_art.py",
+  "palette": "folded-beijing/three-tier",
+  "assets": {
+    "intro_room": {
+      "kind": "scene",
+      "w": 240,
+      "h": 104,
+      "bytes": 49920,
+      "sha256": "bc5509941aa8a55cec3dc0daa05e71d4708152e61208e92896aef088a35dcfe2"
+    },
+    "home_street": {
+      "kind": "scene",
+      "w": 240,
+      "h": 104,
+      "bytes": 49920,
+      "sha256": "c863e041b5383c8026c7a8d1edbdd14e9df6a6385c5011ca7fa8808cb3a76e36"
+    },
+    "market_stall": {
+      "kind": "scene",
+      "w": 240,
+      "h": 104,
+      "bytes": 49920,
+      "sha256": "914a38e93cf6c59ddbebd272a92ca4ed0aaa782bd722972d16264b6ac8351adb"
+    },
+    "delivery_road": {
+      "kind": "scene",
+      "w": 240,
+      "h": 104,
+      "bytes": 49920,
+      "sha256": "55df337ecdf42be75db77804d494ae57ef52cb4001f9bc091a970df45c8adbed"
+    },
+    "gig_warehouse": {
+      "kind": "scene",
+      "w": 240,
+      "h": 104,
+      "bytes": 49920,
+      "sha256": "62e38c03bc4d3c24a355512f3366cbf3e7e866d6c0b8d9a141cadc603f67150f"
+    },
+    "ride_car": {
+      "kind": "scene",
+      "w": 240,
+      "h": 104,
+      "bytes": 49920,
+      "sha256": "d98129ef2ad44d31861a5b3f20158fcd57166ad58ed1e8659dbf747271f013b8"
+    },
+    "live_room": {
+      "kind": "scene",
+      "w": 240,
+      "h": 104,
+      "bytes": 49920,
+      "sha256": "22d873e4695c117cc0734aa1def62a73d16faf1c2a9743c57d32b67f7c9c0750"
+    },
+    "report_night": {
+      "kind": "scene",
+      "w": 240,
+      "h": 104,
+      "bytes": 49920,
+      "sha256": "6a696d3cdfc1949c017e93dd92975ecde35406bc157bf2b77f6dd8325eb6b677"
+    },
+    "event_rain": {
+      "kind": "scene",
+      "w": 240,
+      "h": 104,
+      "bytes": 49920,
+      "sha256": "cb93efadfd39a9c4330670f8215c5e06c277c665c4f0f5b4d1d7f246e27fda52"
+    },
+    "ending_dawn": {
+      "kind": "scene",
+      "w": 240,
+      "h": 104,
+      "bytes": 49920,
+      "sha256": "a92850cf10cab0b5053fb71cbf9f71867ba65455bb732e19f39cbb0c5d56b12b"
+    },
+    "cash": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "86ca0292413c540c78713013291c3ade403d158cd26acf725a5275be4f957bd5"
+    },
+    "heart": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "fbf06ca6231a6befd586770fe08b4ca8c610d919bdfb35befafb971443d0b58b"
+    },
+    "bolt": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "e2ec86adc762bf8c99c5b1cc0fce724e0a00a6275017a26e3a0770818cf80f1c"
+    },
+    "star": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "fbcd80434f1cd3d137d4537164f5de6354c25320b97041f4613d49efbc19ae37"
+    },
+    "cal": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "850efd794c15da88a74b6bd2a1a03229a7d159348d554a267abec1da0adcdcc1"
+    },
+    "work": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "496f38dbff9c679360661cc0b8c9cc68c2a2c16f4459a55dee5ae62f3f1db03c"
+    },
+    "rest": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "5343480fae14b112086e6806ed1c9d73ebbcc68157aa540646708d3b53a76453"
+    },
+    "card": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "3c739ac65bd6529b93486b5d8ab3ba889133133cef4fbd342261f8bb81921391"
+    },
+    "box": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "f4b270971bf6d4aa375a960617b20b0717967a2c00ed62e751fa012e28d0306d"
+    },
+    "door": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "01750f84f343a3bf67e077f284f52b866399bf61c306227ea8a49037c85547f7"
+    },
+    "info": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "4a8a84b8c3f0c2bec2209146dc876275019ead88d0824eec0a3af3a7cfd6d60d"
+    },
+    "clock": {
+      "kind": "icon",
+      "w": 16,
+      "h": 16,
+      "bytes": 768,
+      "sha256": "244568e4dc7d050be572d42c740bc4d79f2e5f04971699a6ee73c6c8dda98ddc"
+    }
+  }
+}

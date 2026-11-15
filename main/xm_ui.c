@@ -50,7 +50,8 @@ void xm_ui_apply_locked(const xm_view_t *view, int soc) {
     lv_obj_set_style_border_width(s_screen, 0, 0);
     lv_obj_set_style_pad_all(s_screen, 0, 0);
     lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-    xm_widgets_draw_image(s_screen, view);   /* 白描底图垫在最下层 */
+    xm_widgets_draw_image(s_screen, view);   /* 场景图垫在最下层 */
+    xm_widgets_draw_icons(s_screen, view);   /* 图标压在场景图之上、面板之下 */
     xm_widgets_draw_boxes(s_screen, view);
     xm_widgets_draw_strokes(s_screen, view);
     xm_ui_draw_lines(s_screen, view);

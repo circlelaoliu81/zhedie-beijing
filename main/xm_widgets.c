@@ -77,6 +77,45 @@ void xm_widgets_draw_image(lv_obj_t *screen, const xm_view_t *view) {
     lv_obj_remove_flag(img, LV_OBJ_FLAG_CLICKABLE);
 }
 
+/* 图标 sprite：Flash 里的 RGB565A8（RGB565 平面 + A8 平面）。
+ *
+ * 三个必须照做的点（社区已踩过，见 docs/reference/shinku-chen/
+ * lossless-sprite-compositing-without-psram 与 galgame-port-lessons）：
+ *   1. 每个 lv_image 必须有自己的描述符 —— lv_image_set_src 保存的是指针，
+ *      共用一份会让所有图标都显示最后写入的那张。
+ *   2. lv_image_set_src 会把对象尺寸重置成内容尺寸；描述符不被识别时是 0x0，
+ *      对象直接塌掉，所以 set_src 之后必须再显式 set_size。
+ *   3. 交给 LVGL 之前校验描述符头（magic / cf / w / h / stride）。
+ *      alpha 平面 offset 由 LVGL 按 stride*h 推出，因此 stride 必须等于 w*2。 */
+static lv_image_dsc_t s_icon_dsc[XM_VIEW_ICON_MAX];
+
+void xm_widgets_draw_icons(lv_obj_t *screen, const xm_view_t *view) {
+    if (!screen || !view) return;
+    for (uint8_t i = 0; i < view->icon_n && i < XM_VIEW_ICON_MAX; ++i) {
+        const xm_view_icon_t *ic = &view->icons[i];
+        if (!ic->data || ic->w == 0u || ic->h == 0u) continue;
+        lv_image_dsc_t *dsc = &s_icon_dsc[i];
+        dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
+        dsc->header.cf = LV_COLOR_FORMAT_RGB565A8;
+        dsc->header.flags = 0u;
+        dsc->header.w = ic->w;
+        dsc->header.h = ic->h;
+        dsc->header.stride = (uint32_t)ic->w * 2u;
+        dsc->header.reserved_2 = 0u;
+        dsc->data_size = (uint32_t)ic->w * ic->h * 3u;
+        dsc->data = ic->data;
+        dsc->reserved = NULL;
+        dsc->reserved_2 = NULL;
+
+        lv_obj_t *img = lv_image_create(screen);
+        lv_image_set_src(img, dsc);
+        lv_obj_set_pos(img, ic->x, ic->y);
+        lv_obj_set_size(img, ic->w, ic->h);
+        lv_obj_remove_flag(img, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(img, LV_OBJ_FLAG_SCROLLABLE);
+    }
+}
+
 void xm_widgets_draw_boxes(lv_obj_t *screen, const xm_view_t *view) {
     if (!screen || !view) return;
     for (uint8_t i = 0; i < view->box_n && i < 32u; ++i) {

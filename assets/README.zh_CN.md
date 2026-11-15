@@ -56,3 +56,24 @@ BSP 在 `components/bsp/src/bsp_battery.c` 中嵌入这 80 字节，主机检查
 `fa7365671093ef449c5bdcfb4adb279e3d275f888109f50b6b2f21e9b96220d5`。
 这是电量计参数，不是充电配置，也不能通用于所有 500 mAh 电芯；详见
 [硬件指南](../docs/hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.zh_CN.md#9-cw2017-电池计)。
+
+## 折叠北京 · 像素美术（assets/art/）
+
+全部美术由 `tools/xm/make_fb_art.py` 程序化生成，不依赖任何第三方图形素材，
+因此没有外部授权问题（生成器本身即来源）。
+
+| 产物 | 格式 | 用途 | 单张成本 |
+| --- | --- | --- | --- |
+| `*.rgb565` | RGB565 裸字节（240x104） | 页面顶部场景横幅 | 49,920 B |
+| `*.rgb565a8` | RGB565 平面 + A8 平面（16x16） | 状态/菜单图标，可压任意底色 | 768 B |
+
+设计约束（来自社区已上架玩法的实测经验，见 `docs/reference/`）：
+
+- 场景图必须是 **Flash 直读的 RGB565 常量**。无 PSRAM 板子上 240x320 的
+  RGB565 画布是 153,600 B，`heap_caps_malloc` 申请不到；直读则零分配。
+- 图标必须带 alpha（RGB565A8）。纯 RGB565 的图标压在黄色选中底上会露出方块。
+- 主色板固定为「折叠北京三层城市」：上层霓虹紫 `#2E1B4A/#FF4D6D`、
+  中层钠灯橙 `#FFB03A`、底层水泥青 `#0E1319/#2C3A4A`。
+
+重新生成：`python3 tools/xm/make_fb_art.py`
+格式校验：`python3 tools/xm/check_fb_art.py`（按 LVGL 语义解回并逐像素比对）

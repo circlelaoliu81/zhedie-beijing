@@ -24,7 +24,7 @@ typedef struct {
 
 static QueueHandle_t s_input_queue = NULL;
 static TaskHandle_t s_input_task = NULL;
-static xm_app_t *s_app = NULL;
+static fb_app_t *s_app = NULL;
 static volatile bool s_input_ready = false;
 static key_guard_t s_key_guard;
 
@@ -64,26 +64,24 @@ static void xm_input_loop(void *arg) {
     for (;;) {
         const BaseType_t got = xQueueReceive(s_input_queue, &msg,
                                              pdMS_TO_TICKS(XM_INPUT_TICK_MS));
-        const int64_t now_us = esp_timer_get_time();
         if (got == pdTRUE) {
-            xm_app_on_key(s_app, msg.input, now_us);
-        } else {
-            xm_app_tick(s_app, now_us);
+            fb_app_on_key(s_app, msg.input);
         }
-        if (!xm_app_need_render(s_app)) continue;
+        if (!fb_app_need_render(s_app)) continue;
         const int soc = bsp_battery_soc();
         xm_view_t view;
-        if (xm_app_render(s_app, &view, now_us, soc) != XM_OK) continue;
+        fb_app_render(s_app, &view);
+        if (view.line_n == 0u) continue;
         if (bsp_lvgl_lock(500)) {
             xm_ui_apply_locked(&view, soc);
             bsp_lvgl_unlock();
         } else {
-            xm_app_mark_dirty(s_app);
+            fb_app_mark_dirty(s_app);
         }
     }
 }
 
-esp_err_t xm_input_task_start(xm_app_t *app) {
+esp_err_t xm_input_task_start(fb_app_t *app) {
     if (!app) return ESP_ERR_INVALID_ARG;
     s_app = app;
     s_input_queue = xQueueCreate(XM_INPUT_QUEUE_DEPTH, sizeof(xm_input_msg_t));

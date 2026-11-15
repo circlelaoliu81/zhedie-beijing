@@ -19,14 +19,19 @@
  * 容量放大不影响栈：art 是指针，view 本体只增加 16 个 box 的常驻空间。 */
 #define XM_VIEW_BOX_MAX 32u
 #define XM_VIEW_STROKE_MAX 16u
+/* 图标 sprite：状态条 2 + 数值卡 4 + 菜单卡 6 = 12 是单页上限。
+ * 每个 12 字节，12 个给 xm_view_t 增加 144 字节栈占用（真机已知栈紧，所以卡死上限）。 */
+#define XM_VIEW_ICON_MAX 12u
 
-#define XM_COLOR_PAPER   0xF2EBDCu
-#define XM_COLOR_INK     0x2B2A27u
-#define XM_COLOR_SUBINK  0x6B6559u
-#define XM_COLOR_RED     0x9E3B32u
-#define XM_COLOR_BLUE    0x4A5A5Cu
-#define XM_COLOR_LINE    0xD8CFBBu
-#define XM_COLOR_DISABLE 0x9A9384u
+/* 折叠北京 · 城市夜配色（与基线的宣纸古风彻底区分）
+ * 深底浅字：夜间屏幕更省电，也让 240x320 小屏的文字对比度更高。 */
+#define XM_COLOR_PAPER   0x12151Cu   /* 背景：夜色底 */
+#define XM_COLOR_INK     0xEDE6D8u   /* 主文字：暖白 */
+#define XM_COLOR_SUBINK  0x8A8F99u   /* 次要文字：灰 */
+#define XM_COLOR_RED     0xC4443Cu   /* 危险：红 */
+#define XM_COLOR_BLUE    0x4FA88Bu   /* 成功：青 */
+#define XM_COLOR_LINE    0x2A3040u   /* 分隔线：深灰蓝 */
+#define XM_COLOR_DISABLE 0x5A6070u   /* 禁用：暗灰 */
 
 typedef enum {
     XM_ALIGN_LEFT = 0,
@@ -64,6 +69,18 @@ typedef struct {
     uint8_t width;
 } xm_view_stroke_t;
 
+/* 图标 sprite。data 指向 Flash 里的 RGB565A8 常量（RGB565 平面 + A8 平面），
+ * 因此图标可以压在任意底色上 —— 这是社区做法，纯 RGB565 会露出方块底。
+ * 与 image 一样只存指针，不搬像素。 */
+typedef struct {
+    int16_t x;
+    int16_t y;
+    const uint8_t *data;
+    uint8_t w;
+    uint8_t h;
+    uint8_t id;   /* 应用层图标 id；host 预览据此选同名 PNG，设备端不用 */
+} xm_view_icon_t;
+
 typedef struct {
     xm_view_line_t lines[24];
     xm_view_box_t boxes[32];
@@ -76,9 +93,12 @@ typedef struct {
     int16_t image_y;
     uint16_t image_w;
     uint16_t image_h;
+    uint8_t image_id;   /* 应用层场景 id；host 预览据此选同名 PNG */
+    xm_view_icon_t icons[XM_VIEW_ICON_MAX];
     uint8_t line_n;
     uint8_t box_n;
     uint8_t stroke_n;
+    uint8_t icon_n;
     uint8_t overlay;
     bool footer;
 } xm_view_t;

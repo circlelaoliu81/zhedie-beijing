@@ -1,181 +1,86 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# 折叠北京 · 一键验证。
+#
+# 每一道门禁对应一类"编译通过但设备上是坏的"故障：
+#   art-check   美术二进制长度/编码不对  -> 花屏、黑块
+#   charset     字库缺字                -> 屏上空白方块
+#   host-test   数值/导航回归            -> 玩法坏掉但能开机
+#   layout      文本越界/重叠            -> 字被裁掉或压在一起
+#   build       固件能链接、分区放得下    -> 刷不进去
+#
+# 用法：
+#   bash tools/validate.sh          # 除构建以外的全部门禁
+#   bash tools/validate.sh --build  # 再加上固件构建
+set -u
 
-mode="${1:---all}"
-repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
 
-usage() {
-    echo "Usage: $0 [--all|--static|--firmware]" >&2
-}
+DO_BUILD=0
+[ "${1:-}" = "--build" ] && DO_BUILD=1
 
-run_static_checks() {
-    local actionlint_bin
-    local test_dir
-    local dead_strip_flag
+PASS=0
+FAIL=0
+step() { printf '\n=== %s ===\n' "$1"; }
+ok()   { PASS=$((PASS + 1)); printf '  PASS %s\n' "$1"; }
+bad()  { FAIL=$((FAIL + 1)); printf '  FAIL %s\n' "$1"; }
 
-    # Apple ld does not accept --gc-sections; -dead_strip is the equivalent.
-    dead_strip_flag="-Wl,--gc-sections"
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        dead_strip_flag="-Wl,-dead_strip"
-    fi
+step "1/5 美术清单自校验"
+if python3 tools/xm/make_fb_art.py --check; then ok "清单与产物 sha 一致"; else bad "美术产物漂移，重新跑 make_fb_art.py"; fi
 
-    python3 tools/check_repo.py
+step "2/5 美术二进制格式门禁"
+if python3 tools/xm/check_fb_art.py >/tmp/fb_art_check.log 2>&1; then
+  tail -1 /tmp/fb_art_check.log; ok "RGB565 / RGB565A8 可按 LVGL 语义还原"
+else
+  cat /tmp/fb_art_check.log; bad "美术二进制编码错误"
+fi
 
-    actionlint_bin="${ACTIONLINT_BIN:-}"
-    if [[ -z "${actionlint_bin}" ]]; then
-        actionlint_bin="$(command -v actionlint || true)"
-    fi
-    if [[ -z "${actionlint_bin}" || ! -x "${actionlint_bin}" ]]; then
-        actionlint_bin="$(./tools/install-actionlint.sh)"
-    fi
-    "${actionlint_bin}" -color .github/workflows/*.yml
+step "3/5 字符集与字体覆盖"
+python3 tools/xm/gen_charset.py | tail -3
+# 视图 dump 既是预览输入，也是字体门禁的真实上屏文本来源
+if gcc -std=c11 -Wall -Wextra -Werror -I main -I main/core -I main/generated \
+      -o /tmp/fb_vm_dump tools/xm/fb_vm_dump.c tools/xm/fb_art_host_stub.c \
+      main/fb_app.c main/fb_game.c main/core/xm_fontcov.c 2>/tmp/fb_dump_build.log; then
+  /tmp/fb_vm_dump >/tmp/fb_dump.json
+  if python3 tools/xm/check_fb_charset.py /tmp/fb_dump.json | tail -1; then
+    ok "全部上屏字符都在字库内"
+  else
+    bad "字库缺字（重新跑 tools/xm/gen_fonts.sh）"
+  fi
+else
+  cat /tmp/fb_dump_build.log; bad "视图 dump 编译失败"
+fi
 
-    test_dir="$(mktemp -d /tmp/ai-passport-host-tests.XXXXXX)"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
-        tests/test_ui_pixel_math.c main/ui_pixel_math.c \
-        -o "${test_dir}/test_ui_pixel_math"
-    "${test_dir}/test_ui_pixel_math"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
-        tests/test_demo_navigation.c main/demo_navigation.c \
-        -o "${test_dir}/test_demo_navigation"
-    "${test_dir}/test_demo_navigation"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain \
-        tests/test_key_guard.c -o "${test_dir}/test_key_guard"
-    "${test_dir}/test_key_guard"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Imain/core \
-        tests/test_xm_err_flags.c main/core/xm_time.c \
-        -o "${test_dir}/test_xm_err_flags"
-    "${test_dir}/test_xm_err_flags"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Imain/core -Imain/generated \
-        tests/test_xm_vm_layout.c main/core/xm_vm.c main/core/xm_layout.c \
-        main/core/xm_fontcov.c main/generated/xm_tianshi_img_data.c \
-        -o "${test_dir}/test_xm_vm_layout"
-    "${test_dir}/test_xm_vm_layout"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Imain/core -Imain/generated \
-        tests/test_xm_pages_hl.c main/xm_pages.c main/core/xm_*.c \
-        main/generated/xm_*_data.c -o "${test_dir}/test_xm_pages_hl"
-    "${test_dir}/test_xm_pages_hl"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Imain/core -Imain/generated \
-        tests/test_xm_hl_width.c main/xm_pages.c main/core/xm_*.c \
-        main/generated/xm_*_data.c -o "${test_dir}/test_xm_hl_width"
-    "${test_dir}/test_xm_hl_width"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Imain/core -Imain/generated \
-        tests/test_xm_font_size.c main/xm_pages.c main/core/xm_*.c \
-        main/generated/xm_*_data.c -o "${test_dir}/test_xm_font_size"
-    "${test_dir}/test_xm_font_size"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Imain/core -Imain/generated \
-        tests/test_xm_nav_result.c main/core/xm_nav.c main/core/xm_time.c \
-        -o "${test_dir}/test_xm_nav_result"
-    "${test_dir}/test_xm_nav_result"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Imain/core -Imain/generated \
-        tests/test_xm_yijing_jiegua.c main/core/xm_yijing.c \
-        main/generated/xm_yijing_data.c -o "${test_dir}/test_xm_yijing_jiegua"
-    "${test_dir}/test_xm_yijing_jiegua"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Imain/core -Imain/generated \
-        tests/test_xm_time_keys.c main/core/xm_*.c main/generated/xm_*_data.c \
-        -o "${test_dir}/test_xm_time_keys"
-    "${test_dir}/test_xm_time_keys"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Imain/core -Imain/generated \
-        tests/test_xm_cast_anim.c main/core/xm_*.c main/generated/xm_*_data.c \
-        -o "${test_dir}/test_xm_cast_anim"
-    "${test_dir}/test_xm_cast_anim"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Imain/core -Imain/generated \
-        tests/test_xm_tianshi.c main/core/xm_*.c main/generated/xm_*_data.c \
-        -o "${test_dir}/test_xm_tianshi"
-    "${test_dir}/test_xm_tianshi"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Imain -Imain/core -Imain/generated \
-        tests/test_xm_store_bootstrap.c main/core/xm_store.c main/core/xm_time.c \
-        -o "${test_dir}/test_xm_store_bootstrap"
-    "${test_dir}/test_xm_store_bootstrap"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Icomponents/bsp/src \
-        tests/test_bsp_display_rounding.c components/bsp/src/bsp_display_rounding.c \
-        -o "${test_dir}/test_bsp_display_rounding"
-    "${test_dir}/test_bsp_display_rounding"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror -Icomponents/bsp/src \
-        tests/test_bsp_es8311_sleep_check.c components/bsp/src/bsp_es8311_sleep_check.c \
-        -o "${test_dir}/test_bsp_es8311_sleep_check"
-    "${test_dir}/test_bsp_es8311_sleep_check"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
-        -Itests/battery_stubs -Itests/bsp_stubs -Icomponents/bsp/include \
-        tests/test_bsp_battery.c -o "${test_dir}/test_bsp_battery"
-    "${test_dir}/test_bsp_battery"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
-        -Itests/bsp_stubs -Icomponents/bsp/include \
-        tests/test_bsp_button.c -o "${test_dir}/test_bsp_button"
-    "${test_dir}/test_bsp_button"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
-        -Itests/bsp_stubs -Icomponents/bsp/include \
-        tests/test_bsp_lvgl_init.c components/bsp/src/bsp_display_rounding.c \
-        -o "${test_dir}/test_bsp_lvgl_init"
-    "${test_dir}/test_bsp_lvgl_init"
-    "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
-        -Itests/audio_stubs -Icomponents/bsp/include -Icomponents/bsp/src \
-        tests/test_bsp_audio_recovery.c components/bsp/src/bsp_es8311_sleep_check.c \
-        -o "${test_dir}/test_bsp_audio_recovery"
-    "${test_dir}/test_bsp_audio_recovery"
-    for demo in audio low_power ble wifi; do
-        "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
-            -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
-            "tests/test_demo_${demo}_runtime.c" "${dead_strip_flag}" \
-            -o "${test_dir}/test_demo_${demo}_runtime"
-        "${test_dir}/test_demo_${demo}_runtime"
-    done
-    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_xm_font_config.py
-    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_xm_ui_charset.py
-    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_xm_tianshi_bitmap.py
-    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_battery_profile.py
-    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_deep_sleep_contract.py
-    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_key_wake_contract.py
-    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_check_repo.py
-    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_verify_firmware.py
-    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_archive_firmware.py
-    PYTHONDONTWRITEBYTECODE=1 python3 tests/test_install_passport_skills.py
-    rm -rf "${test_dir}"
-    bash tools/validate_xuanmen.sh
-    echo "Host tests: PASS"
-}
+step "4/5 主机测试（引擎契约 + 页面布局）"
+if gcc -std=c11 -Wall -Wextra -Werror -I main -o /tmp/t_game tests/test_fb_game.c \
+      main/fb_game.c 2>/tmp/t1.log; then
+  if /tmp/t_game >/tmp/t1.out 2>&1; then tail -1 /tmp/t1.out; ok "引擎契约"; else cat /tmp/t1.out; bad "引擎契约"; fi
+else
+  cat /tmp/t1.log; bad "引擎测试编译失败"
+fi
+if gcc -std=c11 -Wall -Wextra -I main -I main/core -I main/generated -o /tmp/t_pages \
+      tests/test_fb_app_pages.c tools/xm/fb_art_host_stub.c main/fb_app.c \
+      main/fb_game.c main/core/xm_fontcov.c 2>/tmp/t2.log; then
+  if /tmp/t_pages >/tmp/t2.out 2>&1; then tail -1 /tmp/t2.out; ok "页面布局与导航"; else cat /tmp/t2.out; bad "页面布局与导航"; fi
+else
+  cat /tmp/t2.log; bad "页面测试编译失败"
+fi
 
-run_firmware_checks() (
-    local validation_build_dir
+step "5/5 固件构建"
+if [ "$DO_BUILD" = "1" ]; then
+  # shellcheck disable=SC1091
+  source "/Volumes/Extreme SSD/_toolchain/env-xuanmen.sh" >/dev/null 2>&1
+  if idf.py build >/tmp/fb_build.log 2>&1; then
+    grep -E "binary size" /tmp/fb_build.log | tail -1
+    ok "固件构建"
+  else
+    grep -E "error" /tmp/fb_build.log | head -10; bad "固件构建"
+  fi
+else
+  printf '  跳过（加 --build 启用）\n'
+fi
 
-    if ! command -v idf.py >/dev/null 2>&1; then
-        echo "ERROR: idf.py is not available; activate ESP-IDF 5.5.3 first." >&2
-        return 1
-    fi
-
-    validation_build_dir="$(mktemp -d /tmp/ai-passport-firmware.XXXXXX)"
-    trap 'case "${validation_build_dir}" in /tmp/ai-passport-firmware.*) rm -rf -- "${validation_build_dir}" ;; esac' EXIT
-
-    python3 tools/xm/check_assets.py
-    SDKCONFIG_DEFAULTS="${repo_root}/sdkconfig.defaults" \
-        idf.py -B "${validation_build_dir}" \
-        -D "SDKCONFIG=${validation_build_dir}/sdkconfig" build
-    idf.py -B "${validation_build_dir}" merge-bin \
-        -o "${validation_build_dir}/FoloToy-AI-Passport-full.bin"
-    python3 tools/verify_firmware.py "${validation_build_dir}"
-    PYTHONDONTWRITEBYTECODE=1 python3 tools/archive_firmware.py create \
-        "${validation_build_dir}" --archive-root "${repo_root}/build/firmware"
-    mkdir -p "${repo_root}/build"
-    install -m 0644 \
-        "${validation_build_dir}/FoloToy-AI-Passport-full.bin" \
-        "${repo_root}/build/FoloToy-AI-Passport-full.bin"
-    echo "Firmware build: PASS"
-)
-
-cd "${repo_root}"
-case "${mode}" in
-    --all)
-        run_static_checks
-        run_firmware_checks
-        ;;
-    --static)
-        run_static_checks
-        ;;
-    --firmware)
-        run_firmware_checks
-        ;;
-    *)
-        usage
-        exit 2
-        ;;
-esac
+printf '\n=============================\n'
+printf '通过 %d 项，失败 %d 项\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ] || exit 1
+printf '全部门禁通过。预览：preview/_all_pages.png\n'

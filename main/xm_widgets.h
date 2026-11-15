@@ -5,5 +5,6 @@
 #include "xm_vm.h"
 
 void xm_widgets_draw_image(lv_obj_t *screen, const xm_view_t *view);
+void xm_widgets_draw_icons(lv_obj_t *screen, const xm_view_t *view);
 void xm_widgets_draw_boxes(lv_obj_t *screen, const xm_view_t *view);
 void xm_widgets_draw_strokes(lv_obj_t *screen, const xm_view_t *view);

@@ -25,7 +25,7 @@ fi
 mkdir -p "$OUTDIR"
 
 python3 - "$FONT" "$CHARSET" "$OUTDIR" "$LFC" <<'PY'
-import sys, subprocess, os
+import sys, subprocess, os, json, hashlib
 font, charset, outdir, lfc = sys.argv[1:5]
 # 注意：charset.txt 按码位升序，首个字符就是空格 U+0020。
 # 用 strip() 会把空格吃掉，导致 4 套字体都缺 U+0020 —— 设备上空格直接消失
@@ -33,6 +33,7 @@ font, charset, outdir, lfc = sys.argv[1:5]
 # 只去掉文件末尾换行，保留前导空格。
 sym = open(charset, encoding="utf-8").read().rstrip("\n")
 print("字符集字符数: %d" % len(sym))
+files = []
 for sz in (12, 16, 20, 24):
     out = os.path.join(outdir, "xm_font_%d.c" % sz)
     subprocess.run(["node", lfc, "--size", str(sz), "--bpp", "4",
@@ -50,5 +51,29 @@ for sz in (12, 16, 20, 24):
         with open(out, "w", encoding="utf-8") as fh:
             fh.write(data)
     print("  生成 xm_font_%d.c : %d KiB" % (sz, szb // 1024))
+    files.append({"size": sz, "bpp": 4, "file": "xm_font_%d.c" % sz,
+                  "bytes": szb,
+                  "sha256": hashlib.sha256(open(out, "rb").read()).hexdigest()})
+# 清单必须跟着字符集走：门禁靠它判断"改了文案有没有忘记重生成字体"。
+# 之前这份清单是基线遗留的，字符数对不上也没人发现。
+manifest = {
+    "generator": "lv_font_conv",
+    "source_font": {
+        "name": "Source Han Sans SC (Normal)",
+        "path": "managed_components/lvgl__lvgl/scripts/built_in_font/SourceHanSansSC-Normal.otf",
+        "license": "SIL Open Font License 1.1",
+    },
+    "charset": {
+        "file": "../data/charset.txt",
+        "chars": len(sym),
+        "sha256": hashlib.sha256(sym.encode("utf-8")).hexdigest(),
+    },
+    "bpp": 4,
+    "format": "lvgl",
+    "files": files,
+}
+with open(os.path.join(outdir, "xm_font_manifest.json"), "w", encoding="utf-8") as fh:
+    json.dump(manifest, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
 print("字体子集生成完成。")
 PY
