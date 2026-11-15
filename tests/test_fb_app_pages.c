@@ -87,6 +87,72 @@ static void snap(const char *name, fb_app_t *app) {
 
 static void press(fb_app_t *app, xm_input_t in) { fb_app_on_key(app, in); }
 
+/* 回归：没装备的行当必须是「可选、可高亮」的待决策项。
+ * 曾经把 unlocked 当 enabled 传进 draw_card，三条线整卡画成禁用灰、
+ * 选中连橙色高亮都不出现 —— 光标明明停在上面，屏幕却像不许选，
+ * 玩家只能判断成功能坏了。买不起时还要直接送到借钱页，而不是原地弹一句话。 */
+static void test_locked_lines_selectable(void) {
+    fb_app_t a;
+    fb_app_init(&a, 7u);
+    press(&a, XM_IN_OK_CLICK);              /* 封面 → 主面板 */
+    a.sel = FB_MENU_WORK;
+    press(&a, XM_IN_OK_CLICK);              /* → 行当页 */
+    assert(a.scr == FB_SCR_LINES);
+
+    a.sel = FB_LINE_DELIVERY;               /* 要 ¥2800，开局 1600 买不起 */
+    assert(!fb_line_unlocked(&a.st, FB_LINE_DELIVERY));
+
+    xm_view_t v;
+    fb_app_render(&a, &v);
+    bool found = false;
+    for (uint8_t i = 0; i < v.line_n; ++i) {
+        const char *t = v.lines[i].text;
+        if (!t || !strstr(t, "送外卖")) continue;
+        found = true;
+        if (v.lines[i].color == XM_COLOR_DISABLE) {
+            printf("  FAIL 送外卖 仍以禁用灰上屏（应可选中）\n");
+            ++s_fail;
+        }
+    }
+    if (!found) {
+        printf("  FAIL 行当页没有画出 送外卖\n");
+        ++s_fail;
+    }
+    check_bounds("lines_locked", &v);
+
+    /* 关键：按 OK 必须**进得去**。原先进不去，玩家永远看不到
+     * 那个「置办装备 ¥2800」的入口，这才是「选不了」的真身。 */
+    press(&a, XM_IN_OK_CLICK);
+    if (a.scr != FB_SCR_ACTION) {
+        printf("  FAIL 未解锁行当进不去动作页（scr=%u）\n", (unsigned)a.scr);
+        ++s_fail;
+    } else {
+        xm_view_t va;
+        fb_app_render(&a, &va);
+        bool has_gear = false;
+        for (uint8_t i = 0; i < va.line_n; ++i) {
+            if (va.lines[i].text && strstr(va.lines[i].text, "置办装备")) has_gear = true;
+        }
+        if (!has_gear) {
+            printf("  FAIL 动作页没有「置办装备」入口\n");
+            ++s_fail;
+        }
+        check_bounds("vehicle_locked", &va);
+    }
+
+    /* 再按一次 OK：钱不够 → 直接送借钱页，并说明差多少 */
+    press(&a, XM_IN_OK_CLICK);
+    if (a.scr != FB_SCR_FINANCE) {
+        printf("  FAIL 买不起时没跳借钱页（scr=%u）\n", (unsigned)a.scr);
+        ++s_fail;
+    }
+    if (!strstr(a.toast, "缺")) {
+        printf("  FAIL 跳转借钱页没说明差多少（toast=%s）\n", a.toast);
+        ++s_fail;
+    }
+    printf("  locked line OK (toast=%s)\n", a.toast);
+}
+
 int main(void) {
     printf("test_fb_app_pages\n");
     fb_app_t app;
@@ -238,6 +304,9 @@ int main(void) {
     /* 结局页按确定 → 重开回封面 */
     press(&app, XM_IN_OK_CLICK);
     assert(app.scr == FB_SCR_INTRO);
+
+    /* 没装备的行当照样可选，买不起就被送到借钱页 */
+    test_locked_lines_selectable();
 
     if (s_fail) {
         printf("test_fb_app_pages: FAIL (%d)\n", s_fail);

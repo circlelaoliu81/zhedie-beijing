@@ -37,6 +37,29 @@
 #define FB_COLOR_CARD    0x1A1F2Au   /* 卡片底 */
 #define FB_COLOR_BAR_BG  0x232A38u   /* 进度条槽 */
 
+/* 把颜色按比例压暗。240x320 上做不出半透明层次（看不出来），
+ * 只能用算好的实色 —— 未选中的行当色条就是 accent 压到 42%。 */
+static uint32_t dim_color(uint32_t c, uint8_t pct) {
+    if (pct > 100) pct = 100;
+    const uint32_t r = ((c >> 16) & 0xFFu) * pct / 100u;
+    const uint32_t g = ((c >> 8) & 0xFFu) * pct / 100u;
+    const uint32_t b = (c & 0xFFu) * pct / 100u;
+    return (r << 16) | (g << 8) | b;
+}
+
+/* 五条活路各一个色。小屏上颜色比文字先被认出来：行当页的左侧色条、
+ * 场景角标、日报标题共用同一套，玩家靠颜色就知道自己在哪条线。 */
+static uint32_t line_color(uint8_t line) {
+    switch (line) {
+        case FB_LINE_MARKET:   return 0xE07A3Fu;   /* 摆摊 · 橙 */
+        case FB_LINE_DELIVERY: return 0x4FA88Bu;   /* 外卖 · 青绿 */
+        case FB_LINE_GIG:      return 0xD9A441u;   /* 日结 · 琥珀 */
+        case FB_LINE_RIDE:     return 0x7B7FD4u;   /* 网约车 · 紫蓝 */
+        case FB_LINE_LIVE:     return 0xD45C7Fu;   /* 直播 · 粉 */
+        default:               return FB_COLOR_ACCENT;
+    }
+}
+
 #define FB_STATUS_H   26
 #define FB_SCENE_Y    26
 #define FB_SCENE_H    104
@@ -238,39 +261,62 @@ static void draw_hours(fb_app_t *app, xm_view_t *v) {
 /* 状态条：图标 + 日期。右上角电量由 xm_status 负责，这里只用到 x=176。 */
 static void draw_status(fb_app_t *app, xm_view_t *v, fb_icon_id_t icon,
                         const char *text) {
+    /* 标题条下沿一条细线。240x320 上加粗字体会糊，一条线就能把
+     * 「标题区 / 场景区」分开，而且不占任何高度。 */
+    v_rect(v, 0, FB_STATUS_H - 1, 240, 1, 0x2A3040u, true);
     v_icon(v, icon, 6, 5);
     v_line(v, 26, 4, 150, 16, XM_COLOR_INK, XM_ALIGN_LEFT,
            pool_raw(app, text));
 }
 
-/* 卡片：硬边框 + 选中底块 + 左侧强调竖条。
- * 选中态不用箭头符号（思源黑体对 ▲▼ 覆盖不稳），改用块面变化。 */
-static void draw_card(fb_app_t *app, xm_view_t *v, int x, int y, int w, int h,
-                      bool selected, bool enabled, fb_icon_id_t icon,
-                      const char *text) {
-    v_rect(v, x, y, (uint16_t)w, (uint16_t)h,
-           selected && enabled ? FB_COLOR_SELBG : FB_COLOR_CARD, true);
-    v_rect(v, x, y, (uint16_t)w, (uint16_t)h,
-           selected && enabled ? FB_COLOR_ACCENT : XM_COLOR_LINE, false);
-    int tx = x + 8;
-    if (selected && enabled) {
-        v_rect(v, x, y, 3, (uint16_t)h, FB_COLOR_ACCENT, true);
-        tx += 2;
-    }
+/* 卡片：硬边框 + 选中底块 + 左侧色条 + 可选右侧数据点。
+ * 选中态不用箭头符号（思源黑体对 ▲▼ 覆盖不稳），改用块面变化。
+ * accent 让每个行当有自己的颜色；right 是右对齐的数据点（耗时/价格），
+ * 让玩家在按 OK 之前就看到代价，而不是按下去才被告诉"你还缺 2800"。 */
+static void draw_card_ex(fb_app_t *app, xm_view_t *v, int x, int y, int w, int h,
+                         bool selected, bool enabled, fb_icon_id_t icon,
+                         uint32_t accent, const char *text,
+                         const char *right, uint32_t right_color) {
+    const bool hi = selected && enabled;
+    v_rect(v, x, y, (uint16_t)w, (uint16_t)h, hi ? FB_COLOR_SELBG : FB_COLOR_CARD,
+           true);
+    v_rect(v, x, y, (uint16_t)w, (uint16_t)h, hi ? accent : XM_COLOR_LINE, false);
+    /* 左侧色条不论选中与否都占位：光标上下移动时卡片内容不会左右跳。
+     * 未选中压到 70% 而不是更暗 —— 42% 时五条线的颜色几乎分辨不出来，
+     * 等于白配了一套色。 */
+    v_rect(v, x, y, 3, (uint16_t)h, hi ? accent : dim_color(accent, 70), true);
+
+    int tx = x + 9;
     if (icon > FB_ICO_NONE) {
         v_icon(v, icon, tx, y + (h - (int)FB_ICON_SIZE) / 2);
         tx += (int)FB_ICON_SIZE + 6;
     }
-    uint32_t color = !enabled ? XM_COLOR_DISABLE
-                              : (selected ? FB_COLOR_ACCENT : XM_COLOR_INK);
+    const uint32_t color = !enabled ? XM_COLOR_DISABLE : (hi ? accent : XM_COLOR_INK);
     /* 展开态（h >= 32）文字靠上，把下半张卡让给调用方画描述；
      * 普通高度居中。这样展开/收起时文字不会上下跳太多。 */
-    int ty = (h >= 32) ? y + 3 : y + (h - 16) / 2;
-    v_line(v, tx, ty, (uint16_t)(x + w - tx - 6), 16, color,
-           XM_ALIGN_LEFT, pool_raw(app, text));
+    const int ty = (h >= 32) ? y + 3 : y + (h - 16) / 2;
+    int tw = x + w - tx - 6;
+    if (right) {
+        v_line(v, x + w - 58, ty, 52, 16, right_color, XM_ALIGN_RIGHT, right);
+        tw -= 56;
+    }
+    if (tw > 10) {
+        v_line(v, tx, ty, (uint16_t)tw, 16, color, XM_ALIGN_LEFT,
+               pool_raw(app, text));
+    }
+}
+
+static void draw_card(fb_app_t *app, xm_view_t *v, int x, int y, int w, int h,
+                      bool selected, bool enabled, fb_icon_id_t icon,
+                      const char *text) {
+    draw_card_ex(app, v, x, y, w, h, selected, enabled, icon, FB_COLOR_ACCENT,
+                 text, NULL, 0);
 }
 
 static void draw_hint(fb_app_t *app, xm_view_t *v, const char *hint) {
+    /* 提示行上方一条细线：把「这是按键说明，不是正文」标出来，
+     * 否则底部这行和上面的数据在视觉上是同一层级 */
+    v_rect(v, 12, 296, 216, 1, 0x2A3040u, true);
     v_line(v, 8, 300, 224, 12, XM_COLOR_SUBINK, XM_ALIGN_CENTER,
            pool_raw(app, hint));
 }
@@ -298,8 +344,10 @@ static uint8_t draw_para(fb_app_t *app, xm_view_t *v, int x, int y,
             ++count;
         }
         buf[n] = '\0';
-        v_line(v, x, y + rows * line_h, 224, size, color, XM_ALIGN_LEFT,
-               pool_put(app, "%s", buf));
+        /* 宽度必须跟着 x 走。原先写死 224，一给左边留缩进（x=30）
+         * 就直接把文字排到屏幕外 —— 门禁的横向越界检查正是拦这个的。 */
+        v_line(v, x, y + rows * line_h, (uint16_t)(240 - x - 8), size, color,
+               XM_ALIGN_LEFT, pool_put(app, "%s", buf));
         ++rows;
     }
     return rows;
@@ -331,6 +379,20 @@ static fb_icon_id_t menu_icon(uint8_t idx) {
     }
 }
 
+/* 六个入口各配一个色：挣钱暖橙、休息青、借钱琥珀、囤货紫、
+ * 收工红、说明灰。纯文字网格在小屏上六个格子长得一模一样，
+ * 加了色条之后靠颜色就能定位，不用逐格读字。 */
+static uint32_t menu_color(uint8_t idx) {
+    switch (idx) {
+        case FB_MENU_WORK: return FB_COLOR_ACCENT;
+        case FB_MENU_REST: return 0x4FA88Bu;
+        case FB_MENU_FINANCE: return FB_COLOR_WARN;
+        case FB_MENU_STORAGE: return 0x7B7FD4u;
+        case FB_MENU_ENDDAY: return 0xC4443Cu;
+        default: return 0x6C7484u;
+    }
+}
+
 static fb_icon_id_t line_icon(uint8_t line) {
     switch (line) {
         case FB_LINE_MARKET: return FB_ICO_WORK;
@@ -344,6 +406,25 @@ static fb_icon_id_t line_icon(uint8_t line) {
 
 /* ---------- 页面渲染 ---------- */
 
+/* 三个开局背景各一个图标和色：被裁员工是关上的门（红）、
+ * 攒下一点钱是现金（青）、卡还能刷是信用卡（琥珀）。
+ * 同一个现金图标画三遍，玩家只能逐字读才知道选的是哪个开局。 */
+static fb_icon_id_t bg_icon(uint8_t i) {
+    switch (i) {
+        case 0: return FB_ICO_DOOR;
+        case 1: return FB_ICO_CASH;
+        default: return FB_ICO_CARD;
+    }
+}
+
+static uint32_t bg_color(uint8_t i) {
+    switch (i) {
+        case 0: return 0xC4443Cu;
+        case 1: return 0x4FA88Bu;
+        default: return FB_COLOR_WARN;
+    }
+}
+
 static void render_intro(fb_app_t *app, xm_view_t *v) {
     size_t n = 0;
     const fb_bg_t *bgs = fb_bg_table(&n);
@@ -351,26 +432,28 @@ static void render_intro(fb_app_t *app, xm_view_t *v) {
 
     v_line(v, 8, 136, 224, 24, XM_COLOR_INK, XM_ALIGN_CENTER,
            pool_raw(app, "折叠北京"));
-    v_line(v, 8, 164, 224, 12, FB_COLOR_ACCENT, XM_ALIGN_CENTER,
+    v_line(v, 8, 163, 224, 12, FB_COLOR_ACCENT, XM_ALIGN_CENTER,
            pool_raw(app, "三层空间 · 一百天"));
 
-    /* 有存档时多出「继续」一项，把三个开局压到 28 行距（24 高）
-     * 才塞得进 292 以内；没存档就保持原来的 32 行距。 */
+    /* 有存档时多出「继续」一项，三个开局只能压到 26 行距（24 高）
+     * 才塞得进 hint 线以内；没存档就放宽到 32 行距并在标题下加装饰线。 */
     if (app->have_save) {
-        draw_card(app, v, 6, 178, 228, 30, app->sel == 0, true, FB_ICO_DOOR,
-                  pool_put(app, "继续上次：第 %d 天", (int)app->save_day));
+        draw_card_ex(app, v, 6, 180, 228, 30, app->sel == 0, true, FB_ICO_DOOR,
+                     FB_COLOR_ACCENT,
+                     pool_put(app, "继续上次：第 %d 天", (int)app->save_day),
+                     "续档", XM_COLOR_SUBINK);
         for (uint8_t i = 0; i < (uint8_t)n && i < 3; ++i) {
-            draw_card(app, v, 6, 212 + i * 26, 228, 24, app->sel == i + 1, true,
-                      FB_ICO_CASH,
-                      pool_put(app, "%s ¥%d", bgs[i].name, (int)bgs[i].cash));
+            draw_card_ex(app, v, 6, 214 + i * 26, 228, 24, app->sel == i + 1,
+                         true, bg_icon(i), bg_color(i), pool_raw(app, bgs[i].name),
+                         pool_put(app, "¥%d", (int)bgs[i].cash), XM_COLOR_SUBINK);
         }
         draw_hint(app, v, "↑↓ 选    OK 确定");
     } else {
+        v_rect(v, 108, 179, 24, 2, FB_COLOR_ACCENT, true);
         for (uint8_t i = 0; i < (uint8_t)n && i < 3; ++i) {
-            draw_card(app, v, 6, 186 + i * 32, 228, 28, app->bg_sel == i, true,
-                      FB_ICO_CASH,
-                      pool_put(app, "%s    现金 ¥%d", bgs[i].name,
-                               (int)bgs[i].cash));
+            draw_card_ex(app, v, 6, 188 + i * 32, 228, 28, app->bg_sel == i, true,
+                         bg_icon(i), bg_color(i), pool_raw(app, bgs[i].name),
+                         pool_put(app, "¥%d", (int)bgs[i].cash), XM_COLOR_SUBINK);
         }
         draw_hint(app, v, "↑↓ 选开局    OK 开始");
     }
@@ -389,31 +472,39 @@ static void render_home(fb_app_t *app, xm_view_t *v) {
     v_line(v, 4, FB_SCENE_Y + 3, 232, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
            pool_clip(app, fb_news_today(st), 18));
 
-    /* 现金：大数字 + 图标，是玩家最常看的一个数 */
-    v_icon(v, FB_ICO_CASH, 8, 137);
-    v_line(v, 30, 133, 96, 24, st->cash < 100 ? FB_COLOR_WARN : XM_COLOR_INK,
+    /* 现金：小号 ¥ + 大号数字。符号压在数字左上角，
+     * 比"¥1234"整体一个字号更像个账本，也给数字让出宽度。 */
+    v_icon(v, FB_ICO_CASH, 8, 139);
+    /* ¥ 与 24px 数字底部对齐（133+24=157 = 141+16），
+     * 上移 4px 之后才和下面那行账目留出 3px 空隙 */
+    v_line(v, 30, 141, 14, 16, XM_COLOR_SUBINK, XM_ALIGN_LEFT, "¥");
+    v_line(v, 44, 133, 76, 24, st->cash < 100 ? FB_COLOR_WARN : XM_COLOR_INK,
            XM_ALIGN_LEFT, pool_put(app, "%d", (int)st->cash));
-    v_line(v, 30, 159, 96, 12, st->debt > 0 ? FB_COLOR_WARN : XM_COLOR_SUBINK,
-           XM_ALIGN_LEFT, pool_put(app, "欠债 %d", (int)st->debt));
+    v_line(v, 30, 160, 90, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
+           pool_put(app, "债%d·存%d", (int)st->debt, (int)st->savings));
 
-    /* 健康 / 精力：条 + 数字。右边一列，和数据形成两栏 */
+    /* 健康 / 精力：条 + 数字。右边一列，和数据形成两栏。
+     * 20% 处压一道深色刻度 —— 掉到线下就该歇了，纯数字给不出紧迫感。 */
     v_icon(v, FB_ICO_HEART, 124, 137);
     draw_bar(v, 146, 141, 84, 8, st->health,
              st->health < 30 ? XM_COLOR_RED : XM_COLOR_BLUE);
+    v_rect(v, 146 + 84 * 20 / 100, 141, 1, 8, 0x0B0E14u, true);
     v_line(v, 146, 151, 84, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
            pool_put(app, "健康 %d", st->health));
 
     v_icon(v, FB_ICO_BOLT, 124, 159);
     draw_bar(v, 146, 163, 84, 8, st->stamina,
              st->stamina < 20 ? FB_COLOR_WARN : FB_COLOR_ACCENT);
+    v_rect(v, 146 + 84 * 20 / 100, 163, 1, 8, 0x0B0E14u, true);
     v_line(v, 146, 173, 84, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
            pool_put(app, "精力 %d", st->stamina));
 
-    /* 菜单：2 列 x 3 行卡片。纯文字列表在小屏上没有"可以点"的暗示 */
+    /* 菜单：2 列 x 3 行。六个格子各配一个色，扫一眼就能定位 */
     for (uint8_t i = 0; i < FB_MENU_COUNT; ++i) {
-        int col = i % 2, row = i / 2;
-        draw_card(app, v, 6 + col * 118, 188 + row * 34, 110, 30,
-                  app->sel == i, true, menu_icon(i), pool_raw(app, menu_label(i)));
+        const int col = i % 2, row = i / 2;
+        draw_card_ex(app, v, 6 + col * 118, 188 + row * 34, 110, 30,
+                     app->sel == i, true, menu_icon(i), menu_color(i),
+                     pool_raw(app, menu_label(i)), NULL, 0);
     }
     /* 底部这一行优先给「上一次干活的结果」：一天能连打几份工，
      * 玩家必须看到上一单挣了多少、扣了什么，否则连干三份是在盲赌。 */
@@ -427,23 +518,50 @@ static void render_lines(fb_app_t *app, xm_view_t *v) {
     draw_scene(v, FB_SC_HOME);
     draw_hours(app, v);
 
-    /* 选中项展开成两行卡片，其余压到 26。五条线全展开需要 5x40=200，
-     * 152 的内容区放不下，展开式让描述有地方待又不挤。 */
+    /* 五条线全展开需要 5x40=200，152 的内容区放不下，所以选中的展开成两行、
+     * 其余压到 26。四条 28 + 一条 44 = 156，落在 134..290。
+     *
+     * 关键改动：没装备的三条线**也是可选、可高亮的**。原先把 unlocked 当
+     * enabled 传给 draw_card，整张卡画成禁用灰，选中时橙色高亮也不出现 ——
+     * 光标明明停在上面，屏幕却像是不让选，玩家只能以为这功能坏了。
+     * 这里的语义是「待决策」而不是「不可用」：选中就告诉你缺多少钱、按 OK 去置办。 */
     int y = 134;
     for (uint8_t i = 0; i < (uint8_t)n; ++i) {
-        bool unlocked = fb_line_unlocked(&app->st, i);
-        bool sel = app->sel == i;
-        int h = sel ? 42 : 26;
-        draw_card(app, v, 6, y, 228, h, sel, unlocked, line_icon(i),
-                  pool_raw(app, meta[i].name));
+        const bool unlocked = fb_line_unlocked(&app->st, i);
+        const bool sel = app->sel == i;
+        const int h = sel ? 42 : 26;
+        const uint32_t accent = line_color(i);
+
+        /* 右侧数据点：解锁了看这活要几小时，没解锁看要掏多少钱 */
+        const char *right = unlocked ? pool_put(app, "%uh", (unsigned)fb_line_hours(i))
+                                     : pool_put(app, "¥%d", (int)meta[i].startup);
+
+        draw_card_ex(app, v, 6, y, 228, h, sel, true, line_icon(i), accent,
+                     pool_raw(app, meta[i].name), right,
+                     unlocked ? XM_COLOR_SUBINK : FB_COLOR_WARN);
+
         if (sel) {
-            v_line(v, 33, y + 21, 195, 12,
-                   unlocked ? XM_COLOR_SUBINK : XM_COLOR_DISABLE, XM_ALIGN_LEFT,
-                   pool_raw(app, unlocked ? meta[i].desc : fb_unlock_hint(i)));
+            if (unlocked) {
+                v_line(v, 33, y + 21, 195, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
+                       pool_raw(app, meta[i].desc));
+            } else {
+                const int32_t gap = meta[i].startup - app->st.cash;
+                v_line(v, 33, y + 21, 195, 12,
+                       gap > 0 ? FB_COLOR_WARN : XM_COLOR_BLUE, XM_ALIGN_LEFT,
+                       gap > 0 ? pool_put(app, "还缺 %d，按 OK 去借钱", (int)gap)
+                               : pool_put(app, "钱够了，按 OK 直接置办"));
+            }
         }
         y += h + 2;
     }
-    draw_hint(app, v, "↑↓ 选行当    OK 进入");
+
+    /* 底部提示跟着光标走：光标停在哪条线，就告诉玩家这一步按下去会发生什么 */
+    const fb_line_meta_t *cur = &meta[app->sel < n ? app->sel : 0];
+    const char *hint = "↑↓ 选行当    OK 开工";
+    if (!fb_line_unlocked(&app->st, app->sel < n ? app->sel : 0)) {
+        hint = (cur->startup > app->st.cash) ? "OK 去借钱置办装备" : "OK 置办装备并开工";
+    }
+    draw_hint(app, v, hint);
 }
 
 /* 摆摊页：点位 + 五种货 + 出摊
@@ -507,21 +625,27 @@ static void render_topic(fb_app_t *app, xm_view_t *v) {
     draw_scene(v, FB_SC_LIVE);
     draw_hours(app, v);
 
-    /* 卡片必须 h>=32 才会把标题靠上排（draw_card 的规则），
-     * 否则标题(16px)会和描述(12px)叠成一团。
-     * 4 张 32 高的卡 + 33 行距落在 134..265，下面留给连播状态。 */
+    /* 原先标题 16px 排在 y+3、描述 12px 排在 y+19，行间距只有 16px，
+     * 而 16px 字实际渲染高度超过字号本身 —— 两行叠在一起糊成一团。
+     * 改成和行当页同一套结构：一行标题 + 右侧数据点，只有选中的才展开描述。 */
+    int y = 134;
     for (uint8_t i = 0; i < (uint8_t)n; ++i) {
-        int y = 134 + i * 33;
-        draw_card(app, v, 6, y, 228, 32, app->sel == i, true, FB_ICO_STAR,
-                  pool_raw(app, tp[i].name));
-        v_line(v, 32, y + 19, 196, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
-               pool_put(app, "涨粉%d 风险%d%% · %s", tp[i].fans, tp[i].risk_pct,
-                        tp[i].note));
+        const bool sel = app->sel == i;
+        const int h = sel ? 40 : 26;
+        draw_card_ex(app, v, 6, y, 228, h, sel, true, FB_ICO_STAR, 0xD45C7Fu,
+                     pool_raw(app, tp[i].name),
+                     pool_put(app, "涨粉%d", tp[i].fans),
+                     sel ? FB_COLOR_ACCENT : XM_COLOR_SUBINK);
+        if (sel) {
+            v_line(v, 33, y + 22, 195, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
+                   pool_put(app, "%s · 风险%d%%", tp[i].note, tp[i].risk_pct));
+        }
+        y += h + 2;
     }
     /* 连播加成是这条线唯一需要「坚持」的机制，必须让玩家看见
      * 自己已经播了几天、再加成到多少 —— 看不见的加成等于没有。 */
-    uint8_t bonus = fb_live_bonus_pct(&app->st);
-    v_line(v, 8, 268, 224, 12, bonus > 100 ? FB_COLOR_ACCENT : XM_COLOR_SUBINK,
+    const uint8_t bonus = fb_live_bonus_pct(&app->st);
+    v_line(v, 8, 266, 224, 12, bonus > 100 ? FB_COLOR_ACCENT : XM_COLOR_SUBINK,
            XM_ALIGN_LEFT,
            pool_put(app, "连播 %u 天 · 涨粉 ×%u.%u", (unsigned)app->st.live_streak,
                     bonus / 100, (bonus % 100) / 10));
@@ -538,17 +662,23 @@ static void render_vehicle(fb_app_t *app, xm_view_t *v, uint8_t line) {
     draw_hours(app, v);
 
     if (!unlocked) {
+        /* 价格取引擎的行当元数据，不在这里另抄一份数字 ——
+         * 抄一份就意味着改价时两边会不同步 */
+        size_t ln = 0;
+        const fb_line_meta_t *lm = fb_line_table(&ln);
+        const int32_t price = (line < ln) ? lm[line].startup : 0;
+
         draw_para(app, v, 8, 140,
                   line == FB_LINE_DELIVERY
                       ? "先置办电动车和装备，才能接单。"
                       : "先交押金租辆车，才能跑活。",
                   FB_BODY_W, 22, 16, XM_COLOR_INK, 3);
-        draw_card(app, v, 6, 212, 228, 30, app->sel == 0, true, ic,
-                  pool_put(app, "置办装备 ¥%d",
-                           line == FB_LINE_DELIVERY ? 2800 : 8000));
-        if (st->cash < (line == FB_LINE_DELIVERY ? 2800 : 8000)) {
+        draw_card_ex(app, v, 6, 212, 228, 30, app->sel == 0, true, ic,
+                     line_color(line), "置办装备开工",
+                     pool_put(app, "¥%d", (int)price), FB_COLOR_WARN);
+        if (st->cash < price) {
             v_line(v, 8, 248, 224, 12, FB_COLOR_WARN, XM_ALIGN_LEFT,
-                   pool_raw(app, "钱不够，去首页「借钱」"));
+                   pool_put(app, "还差 %d，按 OK 去借钱", (int)(price - st->cash)));
         }
     } else {
         draw_card(app, v, 6, 150, 228, 32, app->sel == 0, true, ic,
@@ -571,20 +701,24 @@ static void render_vehicle(fb_app_t *app, xm_view_t *v, uint8_t line) {
 static void render_finance(fb_app_t *app, xm_view_t *v) {
     const fb_state_t *st = &app->st;
     draw_status(app, v, FB_ICO_CARD,
-                pool_put(app, "现金%d 存%d", (int)st->cash, (int)st->savings));
+                pool_put(app, "现金 %d · 存 %d", (int)st->cash, (int)st->savings));
     draw_scene(v, FB_SC_REPORT);
 
-    draw_card(app, v, 6, 140, 228, 27, app->sel == 0, true, FB_ICO_CARD,
-              "刷卡套现 2000 费3%");
-    draw_card(app, v, 6, 171, 228, 27, app->sel == 1, true, FB_ICO_CASH,
-              "网贷 1000 日息1%");
-    draw_card(app, v, 6, 202, 228, 27, app->sel == 2, st->debt > 0, FB_ICO_CASH,
-              pool_put(app, "还 500（现欠 %d）", (int)st->debt));
-    draw_card(app, v, 6, 233, 228, 27, app->sel == 3, st->cash > 0, FB_ICO_BOX,
-              "存 1000 进银行");
-    draw_card(app, v, 6, 264, 228, 27, app->sel == 4, st->savings > 0,
-              FB_ICO_BOX, pool_put(app, "取 1000（存 %d）", (int)st->savings));
-    draw_hint(app, v, "↑↓ 选择    OK 确定");
+    /* 右侧标金额：进钱走青、出钱走琥珀。文字里不再重复数字，
+     * 眼睛扫右列就能比代价，不用逐条读句子。 */
+    draw_card_ex(app, v, 6, 140, 228, 27, app->sel == 0, true, FB_ICO_CARD,
+                 FB_COLOR_WARN, "刷卡套现 费3%", "+1940", XM_COLOR_BLUE);
+    draw_card_ex(app, v, 6, 171, 228, 27, app->sel == 1, true, FB_ICO_CASH,
+                 FB_COLOR_WARN, "网贷 日息1%", "+1000", XM_COLOR_BLUE);
+    draw_card_ex(app, v, 6, 202, 228, 27, app->sel == 2, st->debt > 0,
+                 FB_ICO_CASH, 0x4FA88Bu, "还 500 欠款",
+                 pool_put(app, "欠%d", (int)st->debt), FB_COLOR_WARN);
+    draw_card_ex(app, v, 6, 233, 228, 27, app->sel == 3, st->cash > 0,
+                 FB_ICO_BOX, 0x4FA88Bu, "存 1000 进银行", "+1%", XM_COLOR_BLUE);
+    draw_card_ex(app, v, 6, 264, 228, 27, app->sel == 4, st->savings > 0,
+                 FB_ICO_BOX, 0x4FA88Bu, "取 1000 出来", "-1000", FB_COLOR_WARN);
+    /* 从行当页被引到这里时底部会带一句「还缺 N 元」，玩家知道该按哪一项 */
+    draw_hint(app, v, app->toast[0] ? app->toast : "↑↓ 选择    OK 确定");
 }
 
 static void render_storage(fb_app_t *app, xm_view_t *v) {
@@ -664,32 +798,57 @@ static void render_ending(fb_app_t *app, xm_view_t *v) {
     const fb_state_t *st = &app->st;
     draw_scene(v, FB_SC_ENDING);
 
-    v_line(v, 8, 138, 224, 24, FB_COLOR_ACCENT, XM_ALIGN_CENTER,
+    /* 标题 + 一条居中短线：把「结局」和下面那笔账分成两个视觉块。
+     * 原先标题和正文之间没有分隔，一屏字全糊在一起。 */
+    v_line(v, 8, 136, 224, 24, FB_COLOR_ACCENT, XM_ALIGN_CENTER,
            pool_raw(app, fb_end_title(st->ending)));
-    draw_para(app, v, 8, 168, fb_end_text(st->ending), FB_BODY_W, 22, 16,
+    v_rect(v, 108, 164, 24, 2, FB_COLOR_ACCENT, true);
+    draw_para(app, v, 8, 174, fb_end_text(st->ending), FB_BODY_W, 22, 16,
               XM_COLOR_INK, 3);
 
-    v_icon(v, FB_ICO_CASH, 8, 240);
-    v_line(v, 30, 236, 200, 24, XM_COLOR_INK, XM_ALIGN_LEFT,
+    /* 净值单独装进一张卡 —— 这是玩家一百天唯一带得走的东西 */
+    v_rect(v, 6, 232, 228, 40, FB_COLOR_CARD, true);
+    v_rect(v, 6, 232, 228, 40, XM_COLOR_LINE, false);
+    v_rect(v, 6, 232, 3, 40, FB_COLOR_ACCENT, true);
+    v_icon(v, FB_ICO_CASH, 16, 244);
+    v_line(v, 38, 234, 180, 24, XM_COLOR_INK, XM_ALIGN_LEFT,
            pool_put(app, "净值 %d", (int)fb_net_worth(st)));
-    v_line(v, 8, 264, 224, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
-           pool_put(app, "撑到第 %d 天", st->day > FB_TOTAL_DAYS ? FB_TOTAL_DAYS : st->day));
+    v_line(v, 16, 278, 208, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
+           pool_put(app, "撑到第 %d 天 · 欠债 %d",
+                    st->day > FB_TOTAL_DAYS ? FB_TOTAL_DAYS : st->day,
+                    (int)st->debt));
     draw_hint(app, v, "OK 再来一局");
 }
 
-/* 说明页：7 行 × 13 字 = 91 字上限，多一个标点都会被截断。
- * 行距压到 20 才放得下多出来的两条机制说明（点位 / 存款 / 连播）。 */
-static const char *k_help =
-    "一百天，五条活路：摆摊、外卖、日结、网约车、直播。"
-    "一天 24 小时：干了活就没得睡，睡不够掉健康，"
-    "欠觉会犯困掉钱，再撑就晕倒。"
-    "摆摊挑点位，存钱有日息，连播涨粉快。"
-    "健康到零，故事结束。";
+/* 说明页拆成三节。原先是一整块 9 行文字，240x320 上没人读得下去 ——
+ * 分节之后每节两三行、标题带图标，扫一眼就能定位要找的规则。
+ * 正文从 x=30 起排，可用宽度 202px，12px CJK 一行只能放 16 字，
+ * 所以每节文案都按 16 字/行 断句，避免句号掉到行首。 */
+static const char *k_help_1 = "摆摊·外卖·日结·网约车·直播";
+static const char *k_help_2 = "干活就没得睡，睡不够掉健康，欠觉犯困掉钱，再撑晕倒。";
+static const char *k_help_3 = "健康到零就结束。挑点位、存钱、连播都有讲究。";
+
+static void draw_section(fb_app_t *app, xm_view_t *v, fb_icon_id_t icon,
+                         uint32_t color, int y, const char *title) {
+    v_icon(v, icon, 8, y + 2);
+    v_line(v, 30, y, 200, 16, color, XM_ALIGN_LEFT, pool_raw(app, title));
+    /* 标题下方一条细线，把"这一节到哪儿为止"标出来 */
+    v_rect(v, 30, y + 20, 196, 1, 0x232A38u, true);
+}
 
 static void render_about(fb_app_t *app, xm_view_t *v) {
     draw_status(app, v, FB_ICO_INFO, "玩法说明");
     draw_scene(v, FB_SC_HOME);
-    draw_para(app, v, 8, 140, k_help, FB_BODY_W, 20, 16, XM_COLOR_INK, 7);
+
+    draw_section(app, v, FB_ICO_WORK, FB_COLOR_ACCENT, 136, "五条活路");
+    draw_para(app, v, 30, 158, k_help_1, 16, 16, 12, XM_COLOR_SUBINK, 1);
+
+    draw_section(app, v, FB_ICO_CLOCK, 0x4FA88Bu, 180, "24 小时怎么花");
+    draw_para(app, v, 30, 202, k_help_2, 16, 17, 12, XM_COLOR_INK, 2);
+
+    draw_section(app, v, FB_ICO_HEART, 0xD45C7Fu, 242, "别把命搭进去");
+    draw_para(app, v, 30, 264, k_help_3, 16, 17, 12, XM_COLOR_INK, 2);
+
     draw_hint(app, v, "长按返回");
 }
 
@@ -760,6 +919,21 @@ static uint8_t page_item_count(const fb_app_t *app) {
 
 /* 该线今天还能不能干：前置条件不满足时停在原页并给理由。
  * 工时需求统一从 fb_line_hours() 取，不在这一层另抄一份数字。 */
+/* 缺装备又买不起：直接把玩家送到借钱页，并说清还差多少。
+ * 原先只弹一句「现金不够买电动车」就把人丢回原页 —— 玩家得自己想到
+ * 回主面板 → 借钱 → 再翻回行当页，中间任何一步都可能直接退出游戏。 */
+static void goto_finance_for(fb_app_t *app, uint8_t line) {
+    size_t n = 0;
+    const fb_line_meta_t *meta = fb_line_table(&n);
+    const int32_t need = (line < n) ? meta[line].startup : 0;
+    int32_t gap = need - app->st.cash;
+    if (gap < 0) gap = 0;
+    snprintf(app->toast, sizeof(app->toast), "还缺 %d 元，先借点周转",
+             (int)gap);
+    app->scr = FB_SCR_FINANCE;
+    app->sel = 0;                 /* 落在「刷卡套现」，按 OK 就能拿到钱 */
+}
+
 static bool can_run(fb_app_t *app, uint8_t line) {
     const fb_state_t *st = &app->st;
     if (!fb_line_unlocked(st, line)) {
@@ -909,14 +1083,13 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
             break;
 
         case FB_SCR_LINES:
-            if (fb_line_unlocked(&app->st, app->sel)) {
-                app->line_sel = app->sel;
-                app->scr = FB_SCR_ACTION;
-                app->sel = 0;
-            } else {
-                snprintf(app->toast, sizeof(app->toast), "%s",
-                         fb_unlock_hint(app->sel));
-            }
+            /* 没装备的行当也放进去。动作页本来就写好了「先置办…」+ 价格 +
+             * 「钱不够去借钱」的界面，可这里原先一道 toast 把人拦在门外，
+             * 那个入口玩家永远看不到 —— 屏幕上的「选不了」就是这一行造成的。
+             * 现在按 OK 进去看代价，再按一次 OK 才决定掏钱还是去借。 */
+            app->line_sel = app->sel;
+            app->scr = FB_SCR_ACTION;
+            app->sel = 0;
             break;
 
         case FB_SCR_ACTION:
@@ -946,9 +1119,11 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
 
                 case FB_LINE_DELIVERY:
                     if (!fb_line_unlocked(&app->st, FB_LINE_DELIVERY)) {
-                        if (!fb_buy_ebike(&app->st)) {
+                        if (fb_buy_ebike(&app->st)) {
                             snprintf(app->toast, sizeof(app->toast),
-                                     "现金不够买电动车");
+                                     "电动车到手，再按 OK 出工");
+                        } else {
+                            goto_finance_for(app, FB_LINE_DELIVERY);
                         }
                     } else if (can_run(app, FB_LINE_DELIVERY)) {
                         fb_run_delivery(&app->st, app->toast, sizeof(app->toast));
@@ -966,9 +1141,11 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
 
                 case FB_LINE_RIDE:
                     if (!fb_line_unlocked(&app->st, FB_LINE_RIDE)) {
-                        if (!fb_rent_car(&app->st)) {
+                        if (fb_rent_car(&app->st)) {
                             snprintf(app->toast, sizeof(app->toast),
-                                     "押金 ¥8000 不够，先去借钱");
+                                     "车租好了，再按 OK 上路");
+                        } else {
+                            goto_finance_for(app, FB_LINE_RIDE);
                         }
                     } else if (can_run(app, FB_LINE_RIDE)) {
                         fb_run_ride(&app->st, app->toast, sizeof(app->toast));
@@ -978,9 +1155,11 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
 
                 case FB_LINE_LIVE:
                     if (!fb_line_unlocked(&app->st, FB_LINE_LIVE)) {
-                        if (!fb_buy_live_gear(&app->st)) {
+                        if (fb_buy_live_gear(&app->st)) {
                             snprintf(app->toast, sizeof(app->toast),
-                                     "现金不够买设备");
+                                     "设备到手，再按 OK 开播");
+                        } else {
+                            goto_finance_for(app, FB_LINE_LIVE);
                         }
                     } else if (can_run(app, FB_LINE_LIVE)) {
                         fb_run_live(&app->st, app->sel, app->toast,

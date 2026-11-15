@@ -17,7 +17,7 @@
 #define XM_PAGES_COL_W 112u
 /* 摇卦动画一帧要画三枚方孔铜钱（外框+孔）+ 六行状态标记，16 个不够用。
  * 容量放大不影响栈：art 是指针，view 本体只增加 16 个 box 的常驻空间。 */
-#define XM_VIEW_BOX_MAX 32u
+#define XM_VIEW_BOX_MAX 40u
 #define XM_VIEW_STROKE_MAX 16u
 /* 图标 sprite：状态条 2 + 数值卡 4 + 菜单卡 6 = 12 是单页上限。
  * 每个 12 字节，12 个给 xm_view_t 增加 144 字节栈占用（真机已知栈紧，所以卡死上限）。 */

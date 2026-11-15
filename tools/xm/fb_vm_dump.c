@@ -111,6 +111,14 @@ int main(void) {
     press(XM_IN_OK_CLICK);
     dump_view("03_lines", &g_app);
 
+    /* 需要资产的行当也要进得去：这一页是「置办装备」入口，买不起时按 OK
+     * 会直接被送到借钱页。以前这里被一道 toast 拦在门外，玩家看不到这个入口。 */
+    g_app.sel = FB_LINE_DELIVERY;
+    press(XM_IN_OK_CLICK);
+    dump_view("03b_gear_gate", &g_app);
+    press(XM_IN_OK_LONG);          /* 长按退回行当页 */
+    g_app.sel = 0;
+
     /* 选摆摊 → 进货页。第一项是摆摊点位，OK 逐点切换 */
     press(XM_IN_OK_CLICK);
     dump_view("04_market", &g_app);
