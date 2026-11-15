@@ -72,8 +72,12 @@ typedef struct {
 
 void fb_app_init(fb_app_t *app, uint32_t seed);
 void fb_app_on_key(fb_app_t *app, xm_input_t input);
+/* dirty 是「状态变过、屏上还是旧的」的单向标志：
+ * 状态机置位 → 渲染线程取到 true → 整棵对象树重建并 apply 成功后才清。
+ * 清必须发生在 apply 之后：锁抢不到时保留 dirty，下一轮重试。 */
 bool fb_app_need_render(const fb_app_t *app);
 void fb_app_mark_dirty(fb_app_t *app);
+void fb_app_clear_dirty(fb_app_t *app);
 
 /* 把当前状态渲染成视图模型；返回的 text 指针指向 app->text_pool，调用方不得释放 */
 void fb_app_render(fb_app_t *app, xm_view_t *out);

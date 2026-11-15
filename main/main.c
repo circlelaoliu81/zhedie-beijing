@@ -87,6 +87,9 @@ void app_main(void) {
                      (unsigned)s_view.line_n, (unsigned)s_view.box_n,
                      (unsigned)s_view.icon_n, (unsigned)s_view.image_id);
             xm_ui_apply_locked(&s_view, soc);
+            /* 首屏已经上屏，清掉 init 置的 dirty，免得输入任务起来
+             * 第一轮又整棵树重建一次（会看到一次多余的闪）。 */
+            fb_app_clear_dirty(&s_app);
         } else {
             ESP_LOGE(TAG, "首屏视图为空，检查 fb_app_render");
         }

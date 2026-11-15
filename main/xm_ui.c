@@ -57,7 +57,9 @@ void xm_ui_apply_locked(const xm_view_t *view, int soc) {
     xm_ui_draw_lines(s_screen, view);
     xm_status_apply(s_screen, view, soc);
     xm_battery_start();
-    ESP_LOGI(TAG, "首屏构建: child=%u w=%d h=%d bg=0x%06x",
+    /* 这条日志是「整棵树重建一次」的计数凭证：正常游玩时只应在按键时出现，
+     * 若空闲状态下持续刷屏，说明上层的 dirty 没有清零（曾经就是这么烧了两版）。 */
+    ESP_LOGI(TAG, "视图重建: child=%u w=%d h=%d bg=0x%06x",
              (unsigned)lv_obj_get_child_cnt(s_screen),
              (int)lv_obj_get_width(s_screen), (int)lv_obj_get_height(s_screen),
              (unsigned)lv_color_to_u32(lv_obj_get_style_bg_color(s_screen, 0)));

@@ -827,6 +827,7 @@ void fb_app_init(fb_app_t *app, uint32_t seed) {
 }
 
 void fb_app_mark_dirty(fb_app_t *app) { app->dirty = true; }
+void fb_app_clear_dirty(fb_app_t *app) { app->dirty = false; }
 bool fb_app_need_render(const fb_app_t *app) { return app->dirty; }
 
 void fb_app_on_key(fb_app_t *app, xm_input_t in) {

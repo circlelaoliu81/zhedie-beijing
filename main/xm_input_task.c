@@ -79,6 +79,10 @@ static void xm_input_loop(void *arg) {
         if (bsp_lvgl_lock(500)) {
             xm_ui_apply_locked(&view, soc);
             bsp_lvgl_unlock();
+            /* 只有真画上屏了才清 dirty。抢不到锁就留着，下一轮重来 ——
+             * 之前这里忘了清，dirty 一旦置位就永真，整棵对象树每 100ms
+             * 被销毁重建一次：屏幕闪、CPU 满。 */
+            fb_app_clear_dirty(s_app);
         } else {
             fb_app_mark_dirty(s_app);
         }
