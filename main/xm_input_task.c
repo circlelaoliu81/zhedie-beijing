@@ -8,6 +8,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "key_guard.h"
+#include "app_persist.h"
 #include "xm_input_map.h"
 #include "xm_ui.h"
 
@@ -66,6 +67,9 @@ static void xm_input_loop(void *arg) {
                                              pdMS_TO_TICKS(XM_INPUT_TICK_MS));
         if (got == pdTRUE) {
             fb_app_on_key(s_app, msg.input);
+            /* 状态机只在「进入新一天 / 局结束」时置 save_dirty，
+             * 一天最多写两次 NVS，不用操心 Flash 磨损。 */
+            app_persist_tick(s_app);
         }
         if (!fb_app_need_render(s_app)) continue;
         const int soc = bsp_battery_soc();

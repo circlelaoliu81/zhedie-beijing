@@ -111,18 +111,14 @@ int main(void) {
     press(XM_IN_OK_CLICK);
     dump_view("03_lines", &g_app);
 
-    /* 选摆摊 → 进货页 */
+    /* 选摆摊 → 进货页。第一项是摆摊点位，OK 逐点切换 */
     press(XM_IN_OK_CLICK);
     dump_view("04_market", &g_app);
 
-    /* 连点确定进 6 份货，再选到“出摊卖货” */
-    press(XM_IN_OK_CLICK);
-    press(XM_IN_OK_CLICK);
-    press(XM_IN_OK_CLICK);
-    press(XM_IN_OK_CLICK);
-    press(XM_IN_OK_CLICK);
-    press(XM_IN_OK_CLICK);
-    for (int i = 0; i < 5; ++i) press(XM_IN_DOWN_CLICK);
+    /* 从第 2 项起进 6 份货，再选到「出摊卖货」（点位占了第 1 项） */
+    g_app.sel = 1;
+    for (int i = 0; i < 6; ++i) press(XM_IN_OK_CLICK);
+    g_app.sel = FB_KIND_COUNT + 1;
     dump_view("05_market_ready", &g_app);
 
     /* 出摊 → 回主面板。一天 24 小时能打多份工，干完一份不自动收工。 */
@@ -181,6 +177,34 @@ int main(void) {
     g_app.st.cash = 15300;
     g_app.scr = FB_SCR_ENDING;
     dump_view("14_ending", &g_app);
+
+    /* 财务页：借钱 / 还债 / 存钱 / 取钱，5 项 */
+    fb_app_init(&g_app, 20261115u);
+    press(XM_IN_OK_CLICK);
+    g_app.st.debt = 1200;
+    g_app.st.savings = 3000;
+    g_app.sel = FB_MENU_FINANCE;
+    press(XM_IN_OK_CLICK);
+    g_app.sel = 3;
+    dump_view("15_finance", &g_app);
+
+    /* 直播页：连播加成状态 */
+    fb_app_init(&g_app, 20261115u);
+    press(XM_IN_OK_CLICK);
+    g_app.st.has_live = 1;
+    g_app.st.fans = 1860;
+    g_app.st.live_streak = 6;
+    g_app.line_sel = FB_LINE_LIVE;
+    g_app.scr = FB_SCR_ACTION;
+    g_app.sel = 0;
+    dump_view("16_live", &g_app);
+
+    /* 有存档的封面：多出「继续上次」一项 */
+    fb_app_init(&g_app, 20261115u);
+    g_app.have_save = true;
+    g_app.save_day = 47;
+    g_app.sel = 0;
+    dump_view("17_intro_resume", &g_app);
 
     return 0;
 }

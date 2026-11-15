@@ -7,6 +7,8 @@ idf_component_register(
     SRCS "main.c"
          "fb_app.c"
          "fb_game.c"
+         "fb_save.c"
+         "app_persist.c"
          "xm_input_task.c"
          "xm_ui.c"
          "xm_widgets.c"

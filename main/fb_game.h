@@ -13,6 +13,7 @@
 
 #define FB_TOTAL_DAYS        100
 #define FB_KIND_COUNT        5     /* 摆摊货品种类 */
+#define FB_SPOT_COUNT        8     /* 摆摊点位（夜市/商圈/城中村…，需求倍率各不同） */
 #define FB_GIG_COUNT         6
 #define FB_TOPIC_COUNT       4
 #define FB_LINE_COUNT        5
@@ -33,6 +34,8 @@
 #define FB_SLEEP_DEBT_MAX    7
 /* 工时超过这个数开始算加班透支（日结算按超标比例抽一次健康事件） */
 #define FB_OVERTIME_HOURS    14
+/* 直播连播：连播天数每 +1 涨粉 +10%，连满 10 天封顶 ×2.0 */
+#define FB_LIVE_STREAK_MAX   10
 
 /* 瞌睡等级：0 精神 / 1 犯困 / 2 撑不住 */
 typedef enum {
@@ -76,8 +79,16 @@ typedef struct {
     int32_t price;    /* 零售价 */
     uint8_t base;     /* 基准日需求 */
     uint8_t stamina;  /* 出摊耗体力 */
+    uint8_t vol_pct;  /* 日需求波动幅度 %（点位需求 = base × bias × (1 ± vol)） */
     bool spoil;       /* 易坏，下雨需求打折 */
 } fb_item_t;
+
+/* 摆摊点位：同一个摊子摆在夜市和摆在公园，日需求差出五成。
+ * bias_pct 是需求倍率的百分数（130 = ×1.30），玩家据此挑点位。 */
+typedef struct {
+    const char *name;
+    uint8_t bias_pct;
+} fb_spot_t;
 
 typedef struct {
     const char *name;
@@ -128,6 +139,7 @@ typedef struct {
     int16_t day;             /* 1..FB_TOTAL_DAYS */
     int32_t cash;
     int32_t debt;
+    int32_t savings;         /* 存款：日息 1%，不到 1 元按 1 元算 */
     int16_t health;          /* 0..100 */
     int16_t stamina;         /* 0..100 */
     int16_t reputation;      /* 0..100 */
@@ -156,9 +168,13 @@ typedef struct {
     uint8_t recovering;      /* 晕倒后第二天只能干半天，1 = 生效中 */
     int32_t day_earned;
     int32_t day_spent;
-    /* 摆摊当日需求：regen 时按点×货品生成 */
-    uint8_t demand[FB_KIND_COUNT];
-    uint8_t spot;            /* 摆摊点序号 */
+    /* 摆摊当日需求：[点位][货品]。整天不重摇 —— 切点位只换视角，
+     * 否则玩家可以反复切换刷出高需求点位，这等于免费重开骰子。 */
+    uint8_t demand[FB_SPOT_COUNT][FB_KIND_COUNT];
+    uint8_t spot;            /* 当前摆摊点序号 */
+    /* 直播连播：连续开播天数，断一天清零。涨粉加成 = 1 + 10% × min(streak, 10)。 */
+    uint8_t live_streak;
+    uint8_t news_idx;        /* 今日新闻序号（k_news 下标） */
 } fb_state_t;
 
 /* —— 数据访问 —— */
@@ -168,8 +184,11 @@ const fb_gig_t *fb_gig_table(size_t *n);
 const fb_topic_t *fb_topic_table(size_t *n);
 const fb_line_meta_t *fb_line_table(size_t *n);
 const fb_event_t *fb_event_table(size_t *n);
+const fb_spot_t *fb_spot_table(size_t *n);
 const char *fb_end_title(uint8_t ending);
 const char *fb_end_text(uint8_t ending);
+/* 今日新闻：按 st->news_idx 取句，每天换一条 */
+const char *fb_news_today(const fb_state_t *st);
 const char *fb_news(int32_t idx, uint32_t seed);
 size_t fb_news_count(void);
 const char *fb_spot_name(uint8_t spot);
@@ -220,9 +239,17 @@ bool fb_cashout(fb_state_t *st, int32_t amount);
 bool fb_loan(fb_state_t *st, int32_t amount);
 bool fb_repay(fb_state_t *st, int32_t amount);
 
+/* —— 银行：存活期拿日息 1%，但钱不在手上就掏不出医药费 —— */
+bool fb_bank_deposit(fb_state_t *st, int32_t amount);
+bool fb_bank_withdraw(fb_state_t *st, int32_t amount);
+
 /* —— 摆摊 —— */
 bool fb_buy_item(fb_state_t *st, uint8_t kind, uint8_t qty);
 bool fb_expand_storage(fb_state_t *st);
+/* 换摆摊点：只换视角，不动当日需求矩阵（防止反复切换刷高需求） */
+bool fb_set_spot(fb_state_t *st, uint8_t spot);
+/* 某点位某货品的当日需求，UI 用它在选点位上显示「夜市 ×1.3」和预计能卖多少 */
+uint8_t fb_demand_at(const fb_state_t *st, uint8_t spot, uint8_t kind);
 int32_t fb_run_market(fb_state_t *st, char *log, size_t logsz);
 
 /* —— 其余工作线 —— */
@@ -233,6 +260,9 @@ int32_t fb_run_delivery(fb_state_t *st, char *log, size_t logsz);
 int32_t fb_run_gig(fb_state_t *st, uint8_t gig, char *log, size_t logsz);
 int32_t fb_run_ride(fb_state_t *st, char *log, size_t logsz);
 int32_t fb_run_live(fb_state_t *st, uint8_t topic, char *log, size_t logsz);
+/* 今天的涨粉加成百分数（100 = 无加成，200 = 满级翻倍）。
+ * 连播第 N 天 = 100 + 10×(N-1)，封顶 200。UI 直接贴数字。 */
+uint8_t fb_live_bonus_pct(const fb_state_t *st);
 
 /* —— 休息：当天不干活，额外回复健康与体力，但仍结算当日开销 —— */
 void fb_rest(fb_state_t *st);

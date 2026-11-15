@@ -65,6 +65,14 @@ if gcc -std=c11 -Wall -Wextra -I main -I main/core -I main/generated -o /tmp/t_p
 else
   cat /tmp/t2.log; bad "页面测试编译失败"
 fi
+# 存档：往返一致 + 坏档必拒。这一项挂了等于玩家进度会无声消失。
+if gcc -std=c11 -Wall -Wextra -Werror -I main -I main/core -I main/generated -o /tmp/t_save \
+      tests/test_fb_save.c tools/xm/fb_art_host_stub.c main/fb_save.c main/fb_app.c \
+      main/fb_game.c main/core/xm_fontcov.c 2>/tmp/t3.log; then
+  if /tmp/t_save >/tmp/t3.out 2>&1; then tail -1 /tmp/t3.out; ok "存档往返与坏档拒绝"; else cat /tmp/t3.out; bad "存档往返与坏档拒绝"; fi
+else
+  cat /tmp/t3.log; bad "存档测试编译失败"
+fi
 
 step "5/5 固件构建"
 if [ "$DO_BUILD" = "1" ]; then

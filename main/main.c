@@ -12,8 +12,10 @@
 #include "lvgl.h"
 #include "nvs_flash.h"
 
+#include "app_persist.h"
 #include "fb_app.h"
 #include "fb_art.h"
+#include "fb_save.h"
 #include "xm_build_id.h"
 #include "xm_fonts.h"
 #include "xm_input_task.h"
@@ -55,6 +57,13 @@ void app_main(void) {
 
     /* 用开机时刻做随机种子，保证每局事件序列不同 */
     fb_app_init(&s_app, (uint32_t)(esp_timer_get_time() & 0x7fffffff));
+
+    /* 有存档就停在封面第一项「继续上次」：100 天的游戏不可能一口气玩完，
+     * 没有续档等于每关一次机就前功尽弃。 */
+    bool resumed = (nvs_err == ESP_OK) && app_persist_resume(&s_app);
+    if (resumed) {
+        ESP_LOGI(TAG, "读到存档：第 %d 天，等待玩家选择继续或重开", s_app.save_day);
+    }
 
     (void)bsp_i2c_init();
     (void)bsp_i2c_scan();

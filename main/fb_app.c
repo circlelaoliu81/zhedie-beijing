@@ -123,6 +123,26 @@ static const char *pool_raw(fb_app_t *app, const char *src) {
     return pool_put(app, "%s", src);
 }
 
+/* 按 CJK 字数截断后入池。新闻这类外部文案长度不定，
+ * 直接丢给 232px 宽的 label 只会溢出到屏幕外，必须自己先切。 */
+static const char *pool_clip(fb_app_t *app, const char *src, uint8_t max_chars) {
+    if (app->pool_used >= FB_TEXT_ROWS) return "";
+    char *dst = app->text_pool[app->pool_used++];
+    size_t n = 0;
+    uint8_t count = 0;
+    while (src && *src && count < max_chars) {
+        uint8_t len = xm_utf8_char_len((uint8_t)*src);
+        if (len == 0) len = 1;
+        if (n + len + 1 >= FB_TEXT_COLS) break;
+        memcpy(dst + n, src, len);
+        n += len;
+        src += len;
+        ++count;
+    }
+    dst[n] = '\0';
+    return dst;
+}
+
 /* ---------- 视图辅助 ---------- */
 
 static void v_line(xm_view_t *v, int x, int y, uint16_t w, uint8_t size,
@@ -243,9 +263,9 @@ static void draw_card(fb_app_t *app, xm_view_t *v, int x, int y, int w, int h,
     }
     uint32_t color = !enabled ? XM_COLOR_DISABLE
                               : (selected ? FB_COLOR_ACCENT : XM_COLOR_INK);
-    /* 展开态（h >= 36）文字靠上，把下半张卡让给调用方画描述；
+    /* 展开态（h >= 32）文字靠上，把下半张卡让给调用方画描述；
      * 普通高度居中。这样展开/收起时文字不会上下跳太多。 */
-    int ty = (h >= 36) ? y + 3 : y + (h - 16) / 2;
+    int ty = (h >= 32) ? y + 3 : y + (h - 16) / 2;
     v_line(v, tx, ty, (uint16_t)(x + w - tx - 6), 16, color,
            XM_ALIGN_LEFT, pool_raw(app, text));
 }
@@ -334,13 +354,26 @@ static void render_intro(fb_app_t *app, xm_view_t *v) {
     v_line(v, 8, 164, 224, 12, FB_COLOR_ACCENT, XM_ALIGN_CENTER,
            pool_raw(app, "三层空间 · 一百天"));
 
-    for (uint8_t i = 0; i < (uint8_t)n && i < 3; ++i) {
-        draw_card(app, v, 6, 186 + i * 32, 228, 28, app->bg_sel == i, true,
-                  FB_ICO_CASH,
-                  pool_put(app, "%s    现金 ¥%d", bgs[i].name,
-                           (int)bgs[i].cash));
+    /* 有存档时多出「继续」一项，把三个开局压到 28 行距（24 高）
+     * 才塞得进 292 以内；没存档就保持原来的 32 行距。 */
+    if (app->have_save) {
+        draw_card(app, v, 6, 178, 228, 30, app->sel == 0, true, FB_ICO_DOOR,
+                  pool_put(app, "继续上次：第 %d 天", (int)app->save_day));
+        for (uint8_t i = 0; i < (uint8_t)n && i < 3; ++i) {
+            draw_card(app, v, 6, 212 + i * 26, 228, 24, app->sel == i + 1, true,
+                      FB_ICO_CASH,
+                      pool_put(app, "%s ¥%d", bgs[i].name, (int)bgs[i].cash));
+        }
+        draw_hint(app, v, "↑↓ 选    OK 确定");
+    } else {
+        for (uint8_t i = 0; i < (uint8_t)n && i < 3; ++i) {
+            draw_card(app, v, 6, 186 + i * 32, 228, 28, app->bg_sel == i, true,
+                      FB_ICO_CASH,
+                      pool_put(app, "%s    现金 ¥%d", bgs[i].name,
+                               (int)bgs[i].cash));
+        }
+        draw_hint(app, v, "↑↓ 选开局    OK 开始");
     }
-    draw_hint(app, v, "↑↓ 选开局    OK 开始");
 }
 
 static void render_home(fb_app_t *app, xm_view_t *v) {
@@ -348,6 +381,13 @@ static void render_home(fb_app_t *app, xm_view_t *v) {
     draw_status(app, v, FB_ICO_CAL, pool_put(app, "第 %d 天 / 100", st->day));
     draw_scene(v, FB_SC_HOME);
     draw_hours(app, v);
+
+    /* 今日新闻：主面板是每天必看的一屏，北京的天气和行情得在这儿交代。
+     * 内容区被数据卡和菜单吃满，只能压一条 18px 深底在场景图上沿 ——
+     * 十张场景图顶部都是天空或墙面，压上去不遮主体。 */
+    v_rect(v, 0, FB_SCENE_Y, 240, 18, 0x0B0E14u, true);
+    v_line(v, 4, FB_SCENE_Y + 3, 232, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
+           pool_clip(app, fb_news_today(st), 18));
 
     /* 现金：大数字 + 图标，是玩家最常看的一个数 */
     v_icon(v, FB_ICO_CASH, 8, 137);
@@ -406,28 +446,40 @@ static void render_lines(fb_app_t *app, xm_view_t *v) {
     draw_hint(app, v, "↑↓ 选行当    OK 进入");
 }
 
-/* 摆摊页：库存 + 四种货 + 出摊 */
+/* 摆摊页：点位 + 五种货 + 出摊
+ *
+ * 第一项是摆摊点位 —— 同一个摊子摆在夜市比摆在公园多卖三成，
+ * 而每天的需求矩阵是开局就摇定的（只摇一次，不随切点位重摇）。
+ * 所以「换点位」是读盘判断，不是刷骰子。 */
 static void render_market(fb_app_t *app, xm_view_t *v) {
-    size_t n = 0;
+    size_t n = 0, ns = 0;
     const fb_item_t *items = fb_item_table(&n);
+    const fb_spot_t *spots = fb_spot_table(&ns);
     const fb_state_t *st = &app->st;
+    uint8_t spot = st->spot < ns ? st->spot : 0;
     draw_status(app, v, FB_ICO_BOX,
                 pool_put(app, "库存 %u/%u", st->inv_total, st->storage));
     draw_scene(v, FB_SC_MARKET);
     draw_hours(app, v);
 
-    /* 货品是 5 种不是 4 种：原先按 4 种算的行距让最后一张「出摊」压到了
-     * 底部提示行上。22 高 x 5 + 出摊卡 28，总高 148 正好落在 134..282。 */
+    /* 7 项要塞进 134..284：每项 21 行距（20 高），出摊卡 24 高。
+     * 早先 24 行距 + 5 货 + 出摊 = 150，加上点位行就压到提示行了。 */
+    draw_card(app, v, 6, 134, 228, 20, app->sel == 0, true, FB_ICO_CAL,
+              pool_put(app, "点位 %s ×%u%%", spots[spot].name,
+                       spots[spot].bias_pct));
+
     for (uint8_t i = 0; i < (uint8_t)n; ++i) {
-        int y = 134 + i * 24;
+        int y = 155 + i * 21;
         bool can = st->cash >= items[i].cost && st->inv_total < st->storage;
-        draw_card(app, v, 6, y, 228, 22, app->sel == i, can, FB_ICO_BOX,
-                  pool_put(app, "%s  进%d/卖%d   有%u", items[i].name,
-                           (int)items[i].cost, (int)items[i].price, st->inv[i]));
+        /* 需求写进卡片：进多少货不能靠猜，得看得见这个点今天能卖几份 */
+        draw_card(app, v, 6, y, 228, 20, app->sel == i + 1, can, FB_ICO_BOX,
+                  pool_put(app, "%s 进%d/卖%d 有%u/%u", items[i].name,
+                           (int)items[i].cost, (int)items[i].price, st->inv[i],
+                           (unsigned)fb_demand_at(st, spot, i)));
     }
-    draw_card(app, v, 6, 134 + (int)n * 24 + 2, 228, 28, app->sel == n, true,
+    draw_card(app, v, 6, 260, 228, 24, app->sel == n + 1, true,
               FB_ICO_CASH, "出摊卖货");
-    draw_hint(app, v, "OK 进货 / 出摊");
+    draw_hint(app, v, "OK 换点位/进货/出摊");
 }
 
 static void render_gig(fb_app_t *app, xm_view_t *v) {
@@ -455,14 +507,24 @@ static void render_topic(fb_app_t *app, xm_view_t *v) {
     draw_scene(v, FB_SC_LIVE);
     draw_hours(app, v);
 
+    /* 卡片必须 h>=32 才会把标题靠上排（draw_card 的规则），
+     * 否则标题(16px)会和描述(12px)叠成一团。
+     * 4 张 32 高的卡 + 33 行距落在 134..265，下面留给连播状态。 */
     for (uint8_t i = 0; i < (uint8_t)n; ++i) {
-        int y = 134 + i * 38;
-        draw_card(app, v, 6, y, 228, 34, app->sel == i, true, FB_ICO_STAR,
+        int y = 134 + i * 33;
+        draw_card(app, v, 6, y, 228, 32, app->sel == i, true, FB_ICO_STAR,
                   pool_raw(app, tp[i].name));
         v_line(v, 32, y + 19, 196, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
-               pool_put(app, "涨粉%d · 风险%d%% · %s", tp[i].fans, tp[i].risk_pct,
+               pool_put(app, "涨粉%d 风险%d%% · %s", tp[i].fans, tp[i].risk_pct,
                         tp[i].note));
     }
+    /* 连播加成是这条线唯一需要「坚持」的机制，必须让玩家看见
+     * 自己已经播了几天、再加成到多少 —— 看不见的加成等于没有。 */
+    uint8_t bonus = fb_live_bonus_pct(&app->st);
+    v_line(v, 8, 268, 224, 12, bonus > 100 ? FB_COLOR_ACCENT : XM_COLOR_SUBINK,
+           XM_ALIGN_LEFT,
+           pool_put(app, "连播 %u 天 · 涨粉 ×%u.%u", (unsigned)app->st.live_streak,
+                    bonus / 100, (bonus % 100) / 10));
     draw_hint(app, v, "↑↓ 选题    OK 开播");
 }
 
@@ -504,19 +566,24 @@ static void render_vehicle(fb_app_t *app, xm_view_t *v, uint8_t line) {
     draw_hint(app, v, "OK 确定    长按返回");
 }
 
+/* 财务页：借钱 / 还债 / 存钱。5 张卡按 31 行距排在 140..291，
+ * 与底部提示行（300）留 9px，再紧就会糊成一片。 */
 static void render_finance(fb_app_t *app, xm_view_t *v) {
     const fb_state_t *st = &app->st;
-    draw_status(app, v, FB_ICO_CARD, pool_put(app, "现金 %d", (int)st->cash));
+    draw_status(app, v, FB_ICO_CARD,
+                pool_put(app, "现金%d 存%d", (int)st->cash, (int)st->savings));
     draw_scene(v, FB_SC_REPORT);
 
-    draw_card(app, v, 6, 140, 228, 30, app->sel == 0, true, FB_ICO_CARD,
-              "刷卡套现 2000（手续费3%）");
-    draw_card(app, v, 6, 178, 228, 30, app->sel == 1, true, FB_ICO_CASH,
-              "网贷借 1000（日息1%）");
-    draw_card(app, v, 6, 216, 228, 30, app->sel == 2, st->debt > 0, FB_ICO_CASH,
-              pool_put(app, "还 500 欠款（现欠 %d）", (int)st->debt));
-    v_line(v, 8, 258, 224, 12, FB_COLOR_WARN, XM_ALIGN_LEFT,
-           pool_raw(app, "债会滚利息，先活下来再说。"));
+    draw_card(app, v, 6, 140, 228, 27, app->sel == 0, true, FB_ICO_CARD,
+              "刷卡套现 2000 费3%");
+    draw_card(app, v, 6, 171, 228, 27, app->sel == 1, true, FB_ICO_CASH,
+              "网贷 1000 日息1%");
+    draw_card(app, v, 6, 202, 228, 27, app->sel == 2, st->debt > 0, FB_ICO_CASH,
+              pool_put(app, "还 500（现欠 %d）", (int)st->debt));
+    draw_card(app, v, 6, 233, 228, 27, app->sel == 3, st->cash > 0, FB_ICO_BOX,
+              "存 1000 进银行");
+    draw_card(app, v, 6, 264, 228, 27, app->sel == 4, st->savings > 0,
+              FB_ICO_BOX, pool_put(app, "取 1000（存 %d）", (int)st->savings));
     draw_hint(app, v, "↑↓ 选择    OK 确定");
 }
 
@@ -610,15 +677,19 @@ static void render_ending(fb_app_t *app, xm_view_t *v) {
     draw_hint(app, v, "OK 再来一局");
 }
 
+/* 说明页：7 行 × 13 字 = 91 字上限，多一个标点都会被截断。
+ * 行距压到 20 才放得下多出来的两条机制说明（点位 / 存款 / 连播）。 */
+static const char *k_help =
+    "一百天，五条活路：摆摊、外卖、日结、网约车、直播。"
+    "一天 24 小时：干了活就没得睡，睡不够掉健康，"
+    "欠觉会犯困掉钱，再撑就晕倒。"
+    "摆摊挑点位，存钱有日息，连播涨粉快。"
+    "健康到零，故事结束。";
+
 static void render_about(fb_app_t *app, xm_view_t *v) {
     draw_status(app, v, FB_ICO_INFO, "玩法说明");
     draw_scene(v, FB_SC_HOME);
-    /* 说明页只放得下 6 行 x 13 字 = 78 字，多一个标点都会被截断 */
-    static const char *k_help =
-        "一百天，五条活路：摆摊、外卖、日结、网约车、直播。"
-        "一天 24 小时，干了活就没得睡：睡不够掉健康，连着缺觉会犯困掉钱，再撑就晕倒。"
-        "健康到零，故事结束。";
-    draw_para(app, v, 8, 140, k_help, FB_BODY_W, 22, 16, XM_COLOR_INK, 6);
+    draw_para(app, v, 8, 140, k_help, FB_BODY_W, 20, 16, XM_COLOR_INK, 7);
     draw_hint(app, v, "长按返回");
 }
 
@@ -669,17 +740,18 @@ const char *xm_vm_overlay_text(uint8_t flags) {
 
 static uint8_t page_item_count(const fb_app_t *app) {
     switch (app->scr) {
-        case FB_SCR_INTRO: return 3;
+        case FB_SCR_INTRO: return app->have_save ? 4 : 3;
         case FB_SCR_HOME: return FB_MENU_COUNT;
         case FB_SCR_LINES: return FB_LINE_COUNT;
         case FB_SCR_ACTION:
             switch (app->line_sel) {
-                case FB_LINE_MARKET: return FB_KIND_COUNT + 1;   /* 货品 + 出摊 */
+                /* 点位 + 5 种货 + 出摊 */
+                case FB_LINE_MARKET: return FB_KIND_COUNT + 2;
                 case FB_LINE_GIG: return FB_GIG_COUNT;
                 case FB_LINE_LIVE: return FB_TOPIC_COUNT;
                 default: return 1;
             }
-        case FB_SCR_FINANCE: return 3;
+        case FB_SCR_FINANCE: return 5;
         case FB_SCR_STORAGE: return 1;
         case FB_SCR_EVENT: return app->ev ? app->ev->choice_n : 1;
         default: return 1;
@@ -727,6 +799,9 @@ static void finish_day(fb_app_t *app) {
 
 static void advance_after_event(fb_app_t *app) {
     fb_advance_day(&app->st);
+    /* 推进到新一天 = 一个安全的存档点：结算已完成、事件已选完，
+     * 此刻的 st 读回来不会重复结算任何一笔钱。 */
+    app->save_dirty = true;
     if (fb_check_end(&app->st)) {
         app->scr = FB_SCR_ENDING;
     } else {
@@ -761,12 +836,12 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
     const uint8_t count = page_item_count(app);
     if (in == XM_IN_UP_CLICK) {
         app->sel = (app->sel == 0) ? 0 : (uint8_t)(app->sel - 1);
-        if (app->scr == FB_SCR_INTRO) app->bg_sel = app->sel;
+        if (app->scr == FB_SCR_INTRO && !app->have_save) app->bg_sel = app->sel;
         return;
     }
     if (in == XM_IN_DOWN_CLICK) {
         if (count > 0 && app->sel + 1 < count) app->sel++;
-        if (app->scr == FB_SCR_INTRO) app->bg_sel = app->sel;
+        if (app->scr == FB_SCR_INTRO && !app->have_save) app->bg_sel = app->sel;
         return;
     }
 
@@ -787,7 +862,21 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
 
     switch (app->scr) {
         case FB_SCR_INTRO:
-            fb_init(&app->st, app->bg_sel, app->seed);
+            /* 有存档且停在第一项：直接接着上次的局，不重新 fb_init */
+            if (app->have_save && app->sel == 0) {
+                app->scr = FB_SCR_HOME;
+                app->sel = app->home_sel;
+                app->toast[0] = '\0';
+                break;
+            }
+            /* 选了开局背景（有存档时是第 2~4 项）：旧档作废，重新开一局。
+             * 置 save_dirty 让设备层立刻用新局覆盖旧档 —— 玩家选「重开」
+             * 之后关一次机再打开，不能又回到那个他不想要的旧进度。 */
+            uint8_t bg = app->have_save ? (uint8_t)(app->sel - 1) : app->sel;
+            fb_init(&app->st, bg, app->seed);
+            app->bg_sel = bg;
+            app->have_save = false;
+            app->save_dirty = true;
             app->scr = FB_SCR_HOME;
             app->sel = 0;
             break;
@@ -832,8 +921,17 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
         case FB_SCR_ACTION:
             switch (app->line_sel) {
                 case FB_LINE_MARKET:
-                    if (app->sel < FB_KIND_COUNT) {
-                        if (!fb_buy_item(&app->st, app->sel, 1)) {
+                    if (app->sel == 0) {
+                        /* 换点位：只改视角，当日需求矩阵不重摇 */
+                        size_t ns = 0;
+                        (void)fb_spot_table(&ns);
+                        uint8_t next = (uint8_t)((app->st.spot + 1) % ns);
+                        fb_set_spot(&app->st, next);
+                        snprintf(app->toast, sizeof(app->toast), "换到%s",
+                                 fb_spot_name(next));
+                    } else if (app->sel <= FB_KIND_COUNT) {
+                        uint8_t kind = (uint8_t)(app->sel - 1);
+                        if (!fb_buy_item(&app->st, kind, 1)) {
                             snprintf(app->toast, sizeof(app->toast),
                                      app->st.inv_total >= app->st.storage
                                          ? "仓储满了，先扩容"
@@ -913,6 +1011,18 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
                         snprintf(app->toast, sizeof(app->toast),
                                  "没钱或没债可还");
                     break;
+                case 3:
+                    if (fb_bank_deposit(&app->st, 1000))
+                        snprintf(app->toast, sizeof(app->toast), "存 1000 日息1%%");
+                    else
+                        snprintf(app->toast, sizeof(app->toast), "现金不够存");
+                    break;
+                case 4:
+                    if (fb_bank_withdraw(&app->st, 1000))
+                        snprintf(app->toast, sizeof(app->toast), "取出 1000");
+                    else
+                        snprintf(app->toast, sizeof(app->toast), "存款不够取");
+                    break;
                 default: break;
             }
             break;
@@ -951,8 +1061,11 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
             break;
 
         case FB_SCR_ENDING:
+            /* 局已结束：重开时清掉存档，免得下次开机又翻出这具结束了的局。
+             * save_clear 必须在 fb_app_init 之后置 —— init 会 memset 整个 app。 */
             app->seed = app->seed * 1664525u + 1013904223u;
             fb_app_init(app, app->seed);
+            app->save_clear = true;
             break;
 
         case FB_SCR_ABOUT:

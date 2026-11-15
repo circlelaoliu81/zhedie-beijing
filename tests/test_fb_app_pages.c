@@ -123,6 +123,18 @@ int main(void) {
     press(&app, XM_IN_OK_CLICK);
     assert(app.scr == FB_SCR_FINANCE);
     snap("finance", &app);
+
+    /* 存款/取款：第 4、5 项（财务页现在 5 项，原先 3 项） */
+    press(&app, XM_IN_DOWN_CLICK);
+    press(&app, XM_IN_DOWN_CLICK);
+    press(&app, XM_IN_DOWN_CLICK);
+    assert(app.sel == 3);
+    press(&app, XM_IN_OK_CLICK);
+    assert(app.st.savings == 1000);
+    press(&app, XM_IN_DOWN_CLICK);
+    press(&app, XM_IN_OK_CLICK);
+    assert(app.st.savings == 0);
+
     press(&app, XM_IN_OK_LONG);
     assert(app.scr == FB_SCR_HOME);
     assert(app.sel == FB_MENU_FINANCE);   /* 返回后光标要停在原来那一项 */
@@ -149,9 +161,21 @@ int main(void) {
     press(&app, XM_IN_OK_CLICK);        /* action */
     assert(app.scr == FB_SCR_ACTION);
     snap("market", &app);
+
+    /* 第一项是摆摊点位。把 8 个点位轮一圈回到原点，
+     * 需求矩阵必须一字不差 —— 否则玩家能靠反复切点位刷高需求。 */
+    uint8_t spot0 = app.st.spot;
+    uint8_t demand0[FB_KIND_COUNT];
+    memcpy(demand0, app.st.demand[spot0], sizeof(demand0));
+    for (int i = 0; i < FB_SPOT_COUNT; ++i) press(&app, XM_IN_OK_CLICK);
+    assert(app.st.spot == spot0);
+    assert(memcmp(demand0, app.st.demand[spot0], sizeof(demand0)) == 0);
+
+    /* 货品从第 2 项开始，进 6 份 */
+    app.sel = 1;
     for (int i = 0; i < 6; ++i) press(&app, XM_IN_OK_CLICK);
     assert(app.st.inv_total == 6);
-    app.sel = FB_KIND_COUNT;            /* "出摊卖货" */
+    app.sel = FB_KIND_COUNT + 1;        /* "出摊卖货"（点位占掉第 1 项） */
     snap("market_ready", &app);
     press(&app, XM_IN_OK_CLICK);
     /* 关键契约：出摊后回主面板，不自动收工 —— 一天 24 小时能打多份工 */
@@ -172,6 +196,18 @@ int main(void) {
     assert(app.st.hours_used == 13);
     assert(fb_sleep_hours(&app.st) == 11);
     assert(app.st.day == 1);            /* 还是同一天 */
+
+    /* 直播页：卡片标题(16px)与描述(12px)必须各占一行不重叠。
+     * 这一页早先只做快照没进过 dump，标题直接压住了描述。 */
+    app.st.has_live = 1;
+    app.st.fans = 1860;
+    app.st.live_streak = 6;
+    app.line_sel = FB_LINE_LIVE;
+    app.scr = FB_SCR_ACTION;
+    app.sel = 0;
+    snap("live", &app);
+    app.line_sel = FB_LINE_MARKET;
+    app.scr = FB_SCR_HOME;
 
     /* 收工才结算 */
     app.sel = FB_MENU_ENDDAY;

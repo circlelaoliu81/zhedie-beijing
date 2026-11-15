@@ -41,6 +41,10 @@
 #define FB_STORAGE_START     16
 #define FB_STORAGE_STEP      8
 #define FB_STORAGE_COST      600
+#define FB_BANK_RATE_PCT     1     /* 存款日息 1% */
+#define FB_BANK_MIN_INTEREST 1     /* 存款不足 100 元也按 1 元算，别让利息变成 0 */
+#define FB_LIVE_BRAND_PCT    12    /* 每场开播有 12% 接到商单 */
+#define FB_LIVE_STREAK_BONUS 10    /* 连播每天多 10% 涨粉（上限见 FB_LIVE_STREAK_MAX） */
 
 static int32_t clamp32(int32_t v, int32_t lo, int32_t hi) {
     return v < lo ? lo : (v > hi ? hi : v);
@@ -64,12 +68,17 @@ static const fb_bg_t k_bg[] = {
     { "卡还能刷", "手头紧，但有张大额卡", 1600, 6000, 0 },
 };
 
+/* cost / price / base / stamina / vol_pct / spoil
+ *
+ * base 定得比起始仓储（16 格）小：这样一来夜市（×1.3）能卖光一车货，
+ * 公园（×0.85）总剩一堆 —— 点位差别才在开局就摸得到。
+ * 早先 base 给到 30，哪个点位都超过 16，选点位等于没选。 */
 static const fb_item_t k_items[FB_KIND_COUNT] = {
-    { "烤冷面", 4, 8, 30, 26, true },
-    { "臭豆腐", 3, 6, 24, 24, true },
-    { "烤肠", 2, 5, 30, 24, true },
-    { "冰粉", 2, 7, 22, 22, true },
-    { "贴膜", 2, 15, 8, 18, false },
+    { "烤冷面", 4, 8, 16, 26, 25, true },
+    { "臭豆腐", 3, 6, 13, 24, 28, true },
+    { "烤肠", 2, 5, 16, 24, 26, true },
+    { "冰粉", 2, 7, 12, 22, 30, true },
+    { "贴膜", 2, 15, 5, 18, 20, false },
 };
 
 static const fb_gig_t k_gigs[FB_GIG_COUNT] = {
@@ -81,11 +90,13 @@ static const fb_gig_t k_gigs[FB_GIG_COUNT] = {
     { "商超配送", "短途，不淋雨", 150, 22 },
 };
 
+/* note 控制在 6 个汉字内：直播页那一行描述只有 196px，
+ * 16px 标题下面挂 12px 描述，超过就顶出卡片右边框。 */
 static const fb_topic_t k_topics[FB_TOPIC_COUNT] = {
     { "北漂日常", "稳，涨粉慢", 0, 6, 100, 2 },
     { "探店吃播", "自掏探店费", 60, 10, 140, 6 },
-    { "才艺搞笑", "波动大，可能爆火", 0, 14, 180, 12 },
-    { "蹭热点", "涨粉快，易翻车", 0, 20, 220, 20 },
+    { "才艺搞笑", "爆火或翻车", 0, 14, 180, 12 },
+    { "蹭热点", "涨粉快易翻车", 0, 20, 220, 20 },
 };
 
 static const fb_line_meta_t k_lines[FB_LINE_COUNT] = {
@@ -96,8 +107,18 @@ static const fb_line_meta_t k_lines[FB_LINE_COUNT] = {
     { "直播自媒体", "买设备开播，靠打赏和商单", 1800, 3 },
 };
 
-static const char *k_spots[] = { "夜市", "商圈", "城中村", "写字楼",
-                                 "学校", "地铁口", "医院", "公园" };
+/* 摆摊点：同一个摊子换个地方，日需求能差五成。夜市最肥但要抢位置，
+ * 公园最差但没人管。bias_pct 直接乘在货品基准需求上，不做脚本化补偿。 */
+static const fb_spot_t k_spots[FB_SPOT_COUNT] = {
+    { "夜市",   130 },
+    { "商圈",   120 },
+    { "城中村", 115 },
+    { "写字楼", 110 },
+    { "学校",   105 },
+    { "地铁口", 100 },
+    { "医院",    90 },
+    { "公园",    85 },
+};
 
 /* 18 条事件：line_mask=0 通用，否则只在该线当天干活后可能触发 */
 static const fb_event_t k_events[FB_EVENT_POOL] = {
@@ -230,9 +251,11 @@ static const char *k_quotes_poison[] = {
     "别羡慕别人有背景，你也有，只是你的背景是黑的。",
 };
 
+/* 每日新闻：每条都在 18 个汉字以内 —— 主面板那一行只有 230px（12px 字 19 个），
+ * 超一字就会被裁。写文案时按这个上限来，别指望 UI 层截断得好看。 */
 static const char *k_news[] = {
     "今晨地铁早高峰，西直门站限流。",
-    "气象台：本周多雷阵雨，外卖订单暴涨。",
+    "气象台：本周多雷阵雨，外卖单暴涨。",
     "住建委通报：违规隔断房继续排查。",
     "共享单车又涨价，月卡涨到二十五。",
     "某平台调整派单，远单补贴上调。",
@@ -240,7 +263,7 @@ static const char *k_news[] = {
     "招聘淡季，日结工价普遍下滑。",
     "新能源网约车补贴退坡，司机叫苦。",
     "某短视频平台整治低俗，一批号被封。",
-    "消费贷广告铺天盖地，背后是日息陷阱。",
+    "消费贷广告满天飞，背后是日息坑。",
 };
 
 /* ============================ 数据访问 ============================ */
@@ -255,6 +278,7 @@ TBL_FN(fb_gig_table, k_gigs, fb_gig_t)
 TBL_FN(fb_topic_table, k_topics, fb_topic_t)
 TBL_FN(fb_line_table, k_lines, fb_line_meta_t)
 TBL_FN(fb_event_table, k_events, fb_event_t)
+TBL_FN(fb_spot_table, k_spots, fb_spot_t)
 
 size_t fb_news_count(void) { return TABLE_N(k_news); }
 size_t fb_spot_count(void) { return TABLE_N(k_spots); }
@@ -295,8 +319,13 @@ const char *fb_news(int32_t idx, uint32_t seed) {
     return k_news[i];
 }
 
+const char *fb_news_today(const fb_state_t *st) {
+    if (!st) return k_news[0];
+    return k_news[(size_t)st->news_idx % TABLE_N(k_news)];
+}
+
 const char *fb_spot_name(uint8_t spot) {
-    return spot < TABLE_N(k_spots) ? k_spots[spot] : k_spots[0];
+    return spot < TABLE_N(k_spots) ? k_spots[spot].name : k_spots[0].name;
 }
 
 const char *fb_end_title(uint8_t ending) {
@@ -331,12 +360,34 @@ bool fb_chance(fb_state_t *st, uint32_t pct) {
 
 /* ============================ 生命周期 ============================ */
 
+/* 一天开局摇一次全点位需求矩阵（8 点位 × 5 货品 = 40 格）。
+ * 一次性全摇而不是「切点位时重摇」：后者等于给玩家一台老虎机，
+ * 反复切换总能刷到最肥的那组需求。切点位只改视角，骰子早就掷完了。 */
 void fb_regen_day(fb_state_t *st) {
-    const fb_item_t *it = k_items;
-    for (uint8_t i = 0; i < FB_KIND_COUNT; ++i) {
-        int32_t v = (int32_t)it[i].base + (int32_t)fb_range(st, -6, 8);
-        st->demand[i] = (uint8_t)clamp32(v, 1, 60);
+    for (uint8_t s = 0; s < FB_SPOT_COUNT; ++s) {
+        int32_t bias = k_spots[s].bias_pct;
+        for (uint8_t i = 0; i < FB_KIND_COUNT; ++i) {
+            int32_t vol = k_items[i].vol_pct;
+            /* 基础量 = base × bias / 100，再叠加 ±vol% 的日波动 */
+            int32_t v = (int32_t)k_items[i].base * bias / 100;
+            v = v * (100 + (int32_t)fb_range(st, -(int32_t)vol, vol)) / 100;
+            st->demand[s][i] = (uint8_t)clamp32(v, 1, 99);
+        }
     }
+    /* 每天一条新闻，按 seed 摇 —— 同一天的存档读回来必须是同一条 */
+    st->news_idx = (uint8_t)fb_range(st, 0, (int32_t)TABLE_N(k_news) - 1);
+}
+
+uint8_t fb_demand_at(const fb_state_t *st, uint8_t spot, uint8_t kind) {
+    if (!st || spot >= FB_SPOT_COUNT || kind >= FB_KIND_COUNT) return 0;
+    return st->demand[spot][kind];
+}
+
+bool fb_set_spot(fb_state_t *st, uint8_t spot) {
+    if (!st || spot >= FB_SPOT_COUNT) return false;
+    if (st->spot == spot) return false;
+    st->spot = spot;
+    return true;
 }
 
 void fb_init(fb_state_t *st, uint8_t bg, uint32_t seed) {
@@ -356,8 +407,9 @@ void fb_init(fb_state_t *st, uint8_t bg, uint32_t seed) {
     fb_regen_day(st);
 }
 
+/* 净值含存款：把钱存进银行不等于没挣到，只是拿不出来应急 */
 int32_t fb_net_worth(const fb_state_t *st) {
-    return st->cash + fb_inv_value(st) - st->debt;
+    return st->cash + st->savings + fb_inv_value(st) - st->debt;
 }
 
 int32_t fb_inv_value(const fb_state_t *st) {
@@ -437,6 +489,27 @@ bool fb_repay(fb_state_t *st, int32_t amount) {
     return true;
 }
 
+/* —— 银行 ——
+ * 存款不是白送钱：日息 1% 能滚出复利，但钱不在手上，
+ * 第二天交不起车租或医药费就只能刷回卡债。存与不存是个真取舍。 */
+bool fb_bank_deposit(fb_state_t *st, int32_t amount) {
+    int32_t a = amount;
+    if (a > st->cash) a = st->cash;
+    if (a <= 0) return false;
+    st->cash -= a;
+    st->savings += a;
+    return true;
+}
+
+bool fb_bank_withdraw(fb_state_t *st, int32_t amount) {
+    int32_t a = amount;
+    if (a > st->savings) a = st->savings;
+    if (a <= 0) return false;
+    st->savings -= a;
+    st->cash += a;
+    return true;
+}
+
 /* ============================ 工时 ============================ */
 
 /* 工时的累计健康代价（整数定点，单位：健康点）。
@@ -511,7 +584,7 @@ int32_t fb_run_market(fb_state_t *st, char *log, size_t logsz) {
     for (uint8_t i = 0; i < FB_KIND_COUNT; ++i) {
         uint8_t have = st->inv[i];
         if (!have) continue;
-        int32_t dem = st->demand[i];
+        int32_t dem = fb_demand_at(st, st->spot, i);
         if (rain && k_items[i].spoil) dem = dem * 6 / 10;
         if (dem < 1) dem = 1;
         uint8_t sold = (uint8_t)(have < (uint8_t)dem ? have : (uint8_t)dem);
@@ -527,7 +600,7 @@ int32_t fb_run_market(fb_state_t *st, char *log, size_t logsz) {
     st->cash += revenue;
     st->day_earned += revenue;
     /* 结算文案要能塞进主面板底部一行：12px CJK 视觉宽 224px ÷ 12 ≈ 18 字 */
-    logf_(log, logsz, "出摊 +%d%s", (int)revenue,
+    logf_(log, logsz, "%s出摊 +%d%s", fb_spot_name(st->spot), (int)revenue,
           cut ? " 犯困漏单" : (rain ? " 下雨" : ""));
     return revenue;
 }
@@ -647,6 +720,12 @@ int32_t fb_run_ride(fb_state_t *st, char *log, size_t logsz) {
     return net;
 }
 
+uint8_t fb_live_bonus_pct(const fb_state_t *st) {
+    uint8_t n = st->live_streak > FB_LIVE_STREAK_MAX ? FB_LIVE_STREAK_MAX
+                                                     : st->live_streak;
+    return (uint8_t)(100 + FB_LIVE_STREAK_BONUS * n);
+}
+
 int32_t fb_run_live(fb_state_t *st, uint8_t topic, char *log, size_t logsz) {
     if (!log) return 0;
     log[0] = '\0';
@@ -671,7 +750,10 @@ int32_t fb_run_live(fb_state_t *st, uint8_t topic, char *log, size_t logsz) {
     st->stamina = (int16_t)clamp32(st->stamina - 30, 0, 100);
 
     bool flop = fb_chance(st, t->risk_pct);
-    int32_t gain_fans = flop ? -(int32_t)(st->fans / 3) : (int32_t)t->fans;
+    /* 连播加成：连着播最养号，断一天就掉回 ×1.0。翻车不掉粉翻倍，所以不加成。 */
+    uint8_t bonus = fb_live_bonus_pct(st);
+    int32_t gain_fans = flop ? -(int32_t)(st->fans / 3)
+                             : (int32_t)t->fans * bonus / 100;
     int32_t fans_new = clamp32((int32_t)st->fans + gain_fans, 0, FB_LIVE_FANS_CAP);
     st->fans = (uint16_t)fans_new;
     /* 礼物收入与粉丝量、选题系数挂钩 */
@@ -681,14 +763,28 @@ int32_t fb_run_live(fb_state_t *st, uint8_t topic, char *log, size_t logsz) {
     gift -= cut;
     st->cash += gift;
     st->day_earned += gift;
+
+    /* 商单：播出口碑起来才有品牌找，所以只在没翻车时抽。
+     * 一笔商单抵十几场礼物，是直播线真正的爆发点。 */
+    int32_t brand = 0;
+    if (!flop && fb_chance(st, FB_LIVE_BRAND_PCT)) {
+        brand = fb_range(st, 200, 800);
+        st->cash += brand;
+        st->day_earned += brand;
+    }
+
     if (flop) {
         st->reputation = (int16_t)clamp32(st->reputation - 3, 0, 100);
-        logf_(log, logsz, "翻车了，掉粉 %d", (int)-gain_fans);
+        logf_(log, logsz, "翻车掉粉 %d", (int)-gain_fans);
+    } else if (brand > 0) {
+        logf_(log, logsz, "粉%d 礼%d 商单+%d", (int)gain_fans, (int)gift,
+              (int)brand);
     } else {
-        logf_(log, logsz, "涨粉 %d 礼物+%d%s", (int)gain_fans, (int)gift,
+        logf_(log, logsz, "涨粉%d 礼物+%d%s", (int)gain_fans, (int)gift,
               cut ? " 犯困" : "");
     }
-    return gift;
+    st->live_streak = st->live_streak < 0xFF ? (uint8_t)(st->live_streak + 1) : 0xFF;
+    return gift + brand;
 }
 
 /* ============================ 日结算 ============================ */
@@ -737,6 +833,15 @@ void fb_end_day(fb_state_t *st, char *log, size_t logsz) {
         if (interest < rate) interest = rate;
         st->debt += interest;
         logf_(log, logsz, "债息 +%d ", (int)interest);
+    }
+
+    /* 存款日息：钱躺着也在长，但长得很慢 —— 100 天满打满算也就翻一倍多。
+     * 存款不进 day_earned：利息是资产增值，不是今天挣的工钱。 */
+    if (st->savings > 0) {
+        int32_t bi = st->savings * FB_BANK_RATE_PCT / 100;
+        if (bi < FB_BANK_MIN_INTEREST) bi = FB_BANK_MIN_INTEREST;
+        st->savings += bi;
+        logf_(log, logsz, "存款息+%d ", (int)bi);
     }
 
     /* —— 睡眠结算 ——
@@ -812,6 +917,8 @@ void fb_end_day(fb_state_t *st, char *log, size_t logsz) {
 
 void fb_advance_day(fb_state_t *st) {
     if (st->ending != FB_END_NONE) return;
+    /* 昨天整天没开播 → 连播断掉，加成归 1.0。判断必须在 today_lines 清零之前。 */
+    if (!(st->today_lines & (1u << FB_LINE_LIVE))) st->live_streak = 0;
     st->day++;
     /* 昨天晕倒过：人还没缓过来，第二天只剩半天能干。
      * recovering 标记要留到次日结算才清，UI 靠它给玩家一句「今天只剩半天」。 */

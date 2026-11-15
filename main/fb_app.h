@@ -58,6 +58,12 @@ typedef struct {
     char toast[FB_LOG_SIZE];  /* 最近一次操作结果 */
     bool dirty;
     bool ended_shown;
+    /* 存档接线：save_dirty 由状态机在「进入新一天 / 局结束」时置位，
+     * 设备层看到就落盘；host 测试不接这一层，置了也没人管。 */
+    bool save_dirty;
+    bool save_clear;          /* 要求设备层删档（局结束重开时） */
+    bool have_save;           /* 开机时读到了可用存档（封面据此多一项「继续」） */
+    int16_t save_day;         /* 存档所在天数，只用于封面显示 */
     uint32_t seed;
     /* 常驻文本池：给 xm_view_line_t.text 提供稳定地址 */
     char text_pool[FB_TEXT_ROWS][FB_TEXT_COLS];

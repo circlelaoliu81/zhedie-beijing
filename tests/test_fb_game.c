@@ -169,8 +169,177 @@ static void test_market(void) {
     printf("  market OK (revenue=%d)\n", (int)rev);
 }
 
-static void test_endday_fees(void) {
+/* 摆摊点位：8 个点 × 5 种货都必须有需求；夜市累计高于公园；
+ * 切点位只换视角，当日需求矩阵一格都不能变（否则等于免费重摇骰子） */
+static void test_spots(void) {
     fb_state_t st;
+    assert(fb_spot_count() == FB_SPOT_COUNT);
+    fb_init(&st, 0, 4242u);
+    for (uint8_t s = 0; s < FB_SPOT_COUNT; ++s) {
+        assert(fb_spot_name(s)[0]);
+        for (uint8_t k = 0; k < FB_KIND_COUNT; ++k) {
+            assert(fb_demand_at(&st, s, k) >= 1);
+        }
+    }
+    /* 单组种子会被日波动吃掉，看 20 组的累计胜率 */
+    int win = 0;
+    for (uint32_t seed = 1; seed <= 20; ++seed) {
+        fb_init(&st, 0, seed);
+        int a = 0, b = 0;
+        for (uint8_t k = 0; k < FB_KIND_COUNT; ++k) {
+            a += fb_demand_at(&st, 0, k);
+            b += fb_demand_at(&st, FB_SPOT_COUNT - 1, k);
+        }
+        if (a > b) ++win;
+    }
+    assert(win >= 18);
+
+    fb_init(&st, 0, 777u);
+    uint8_t before[FB_SPOT_COUNT][FB_KIND_COUNT];
+    memcpy(before, st.demand, sizeof(before));
+    for (uint8_t s = 1; s < FB_SPOT_COUNT; ++s) assert(fb_set_spot(&st, s));
+    assert(!fb_set_spot(&st, st.spot));            /* 同一个点不算切换 */
+    assert(!fb_set_spot(&st, FB_SPOT_COUNT));      /* 越界必须拒 */
+    assert(memcmp(before, st.demand, sizeof(before)) == 0);
+
+    /* 换点位确实改变收益：同货同仓，夜市该比公园卖得多 */
+    int32_t rev[2];
+    for (int i = 0; i < 2; ++i) {
+        fb_init(&st, 0, 31337u);
+        st.spot = i == 0 ? 0 : (uint8_t)(FB_SPOT_COUNT - 1);
+        assert(fb_buy_item(&st, 0, 16));
+        char log[FB_LOG_SIZE];
+        rev[i] = fb_run_market(&st, log, sizeof log);
+    }
+    assert(rev[0] >= rev[1]);
+    printf("  spots OK (夜市>公园 %d/20, 摊位收益 %d vs %d)\n", win, (int)rev[0],
+           (int)rev[1]);
+}
+
+/* 银行：存钱不改净值，日息 1%；取超只给存款，存超只存现金 */
+static void test_bank(void) {
+    fb_state_t st;
+    char log[FB_LOG_SIZE];
+    fb_init(&st, 0, 11u);
+    int32_t cash0 = st.cash;
+    int32_t nw0 = fb_net_worth(&st);
+
+    assert(fb_bank_deposit(&st, 1000));
+    assert(st.cash == cash0 - 1000);
+    assert(st.savings == 1000);
+    assert(fb_net_worth(&st) == nw0);   /* 钱只是换了个地方 */
+
+    int32_t sv = st.savings;
+    fb_end_day(&st, log, sizeof log);
+    assert(st.savings == sv + sv / 100);
+    assert(strstr(log, "存款息") != NULL);
+
+    assert(fb_bank_withdraw(&st, 500));
+    assert(st.savings == sv + sv / 100 - 500);
+
+    /* 取超只给存款 */
+    assert(fb_bank_withdraw(&st, 999999));
+    assert(st.savings == 0);
+    assert(!fb_bank_withdraw(&st, 100));   /* 没存款了就不给取 */
+
+    /* 存超只存现金，且没钱时存不进去 */
+    fb_init(&st, 0, 12u);
+    assert(fb_bank_deposit(&st, 999999));
+    assert(st.cash == 0 && st.savings == 1600);
+    assert(!fb_bank_deposit(&st, 100));
+    printf("  bank OK\n");
+}
+
+/* 直播连播：每天 +10% 涨粉，封顶 ×2.0；断一天清零 */
+static void test_live_streak(void) {
+    fb_state_t st;
+    char log[FB_LOG_SIZE];
+    fb_init(&st, 0, 2026u);
+    st.has_live = 1;
+
+    assert(fb_live_bonus_pct(&st) == 100);
+    fb_run_live(&st, 0, log, sizeof log);
+    assert(st.live_streak == 1);
+    assert(fb_live_bonus_pct(&st) == 110);
+
+    st.live_streak = FB_LIVE_STREAK_MAX;
+    assert(fb_live_bonus_pct(&st) == 200);
+    st.live_streak = 200;                  /* 溢出也不该算出怪数 */
+    assert(fb_live_bonus_pct(&st) == 200);
+
+    /* 一整天没开播 → 次日清零 */
+    st.live_streak = 5;
+    st.today_lines = 0;
+    fb_advance_day(&st);
+    assert(st.live_streak == 0);
+
+    /* 开播过就不清零 */
+    st.live_streak = 5;
+    st.today_lines = (uint8_t)(1u << FB_LINE_LIVE);
+    fb_advance_day(&st);
+    assert(st.live_streak == 5);
+
+    /* 加成要真的多涨粉：同种子、同粉丝，连播 10 天的涨粉应接近两倍 */
+    uint16_t fans_a, fans_b;
+    for (int i = 0; i < 2; ++i) {
+        fb_init(&st, 0, 808u);
+        st.has_live = 1;
+        st.fans = 100;
+        st.live_streak = i == 0 ? 0 : FB_LIVE_STREAK_MAX;
+        fb_run_live(&st, 0, log, sizeof log);
+        if (i == 0) fans_a = st.fans; else fans_b = st.fans;
+    }
+    assert(fans_b > fans_a);
+    printf("  live streak OK (涨粉 %u → %u)\n", fans_a, fans_b);
+}
+
+/* 商单：约 12% 概率接到 200~800，接到的场次日志里必须写出来 */
+static void test_live_brand(void) {
+    int hits = 0;
+    for (uint32_t seed = 1; seed <= 600; ++seed) {
+        fb_state_t st;
+        fb_init(&st, 0, seed);
+        st.has_live = 1;
+        st.fans = 2000;
+        st.health = 100;
+        st.sleep_debt = 0;
+        char log[FB_LOG_SIZE];
+        int32_t gain = fb_run_live(&st, 0, log, sizeof log);
+        if (strstr(log, "商单")) {
+            ++hits;
+            /* 商单那笔钱必须真的进账：一场商单至少 200，返回值必然大于它 */
+            assert(gain >= 200);
+        }
+    }
+    /* 12% × 600 = 72 次期望；翻车那 2% 会吃掉一点，仍应远高于 20 */
+    assert(hits > 20);
+    printf("  live brand OK (%d/600)\n", hits);
+}
+
+/* 每日新闻：一天一条，20 天里几乎每天都该变 */
+static void test_news(void) {
+    fb_state_t st;
+    assert(fb_news_count() >= 8);
+    for (uint32_t seed = 1; seed <= 30; ++seed) {
+        fb_init(&st, 0, seed);
+        const char *s = fb_news_today(&st);
+        assert(s && s[0]);
+        assert(st.news_idx < fb_news_count());
+    }
+
+    fb_init(&st, 0, 1234u);
+    uint8_t prev = st.news_idx;
+    int changed = 0;
+    for (int i = 0; i < 20; ++i) {
+        fb_advance_day(&st);
+        if (st.news_idx != prev) ++changed;
+        prev = st.news_idx;
+    }
+    assert(changed >= 15);
+    printf("  news OK (%d/20 天换过)\n", changed);
+}
+
+static void test_endday_fees(void) {    fb_state_t st;
     fb_init(&st, 0, 7u);
     int32_t cash0 = st.cash;
     char log[FB_LOG_SIZE];
@@ -266,6 +435,11 @@ int main(void) {
     test_sleep_debt_chain();
     test_quotes();
     test_market();
+    test_spots();
+    test_bank();
+    test_live_streak();
+    test_live_brand();
+    test_news();
     test_endday_fees();
     test_debt_interest();
     test_event_apply();

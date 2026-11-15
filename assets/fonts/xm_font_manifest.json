@@ -7,8 +7,8 @@
   },
   "charset": {
     "file": "../data/charset.txt",
-    "chars": 980,
-    "sha256": "84ed8aeb881667243572c644b118049185e03bb937bbe358ccbad3b111735d77"
+    "chars": 985,
+    "sha256": "84ac914c7bc2ebc6ffd8aadc8ff27eb4ea718f63a574263243bd41da11d4a985"
   },
   "bpp": 4,
   "format": "lvgl",
@@ -17,29 +17,29 @@
       "size": 12,
       "bpp": 4,
       "file": "xm_font_12.c",
-      "bytes": 480337,
-      "sha256": "fff53322471ade326489b46465bcb8cf8dd38e10a1ab810104906a6cccaead40"
+      "bytes": 482982,
+      "sha256": "cf10b6f82a294bd3821ade6087c29eb26b58c41b6ecf1bf21a5493bf4e0ba6c7"
     },
     {
       "size": 16,
       "bpp": 4,
       "file": "xm_font_16.c",
-      "bytes": 657798,
-      "sha256": "9cc965c65ef5627b254e02602c0bed859bc587a3debf48bf6089898e9e8b8160"
+      "bytes": 661566,
+      "sha256": "611544c093c677535c33a970460288197a213a40c5774d894f9c7236cdd20c29"
     },
     {
       "size": 20,
       "bpp": 4,
       "file": "xm_font_20.c",
-      "bytes": 868299,
-      "sha256": "f913f42116adcb59e2320a0e516ffed18876dd5126ac1e4d7bf466c02604f982"
+      "bytes": 873149,
+      "sha256": "b00899c8110fc5d1110b0ce08ea5c3d219c0d04b47f93d27a2942bf37b2f9a69"
     },
     {
       "size": 24,
       "bpp": 4,
       "file": "xm_font_24.c",
-      "bytes": 1074285,
-      "sha256": "ca76cf2417527a6c4b969e7fdf2623349d1dac9b727421a430bb30d696cbaf44"
+      "bytes": 1080412,
+      "sha256": "08e20edb5aaafada8b6c97a3d3ff8fbd0af94f47f903a49335bcba3ec7ebed20"
     }
   ]
 }

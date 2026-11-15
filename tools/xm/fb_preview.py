@@ -27,6 +27,8 @@ TITLES = {
     "10_event": "随机事件", "11_next_home": "次日",
     "12_home_exhausted": "熬夜到快垮", "13_about": "玩法说明",
     "14_ending": "结局",
+    "15_finance": "财务存取", "16_live": "直播连播",
+    "17_intro_resume": "有存档的封面",
 }
 _cache = {}
 
