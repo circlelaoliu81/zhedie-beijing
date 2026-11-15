@@ -894,7 +894,7 @@ static void render_event(fb_app_t *app, xm_view_t *v) {
         draw_card(app, v, 6, 214 + i * 38, 228, 34, app->ev_choice == i, true,
                   FB_ICO_NONE, e->choices[i].label);
     }
-    draw_hint(app, v, "↑↓ 选    OK 定");
+    draw_hint(app, v, "↑↓ 选    OK 确定");
 }
 
 static void render_ending(fb_app_t *app, xm_view_t *v) {
