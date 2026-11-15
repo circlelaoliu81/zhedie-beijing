@@ -51,8 +51,12 @@ void xm_ui_apply_locked(const xm_view_t *view, int soc) {
     lv_obj_set_style_pad_all(s_screen, 0, 0);
     lv_obj_remove_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
     xm_widgets_draw_image(s_screen, view);   /* 场景图垫在最下层 */
-    xm_widgets_draw_icons(s_screen, view);   /* 图标压在场景图之上、面板之下 */
+    /* 图标必须在色块之后：图标是内容，色块是底。
+     * 原先图标画在 draw_boxes 之前，任何放在卡片/格子里的图标都会被随后
+     * 创建的实心 box 整块盖掉 —— 主面板底部五个入口格子只剩文字没有图标，
+     * 看着像没画完。host 预览与固件同序，所以两边都一起改了。 */
     xm_widgets_draw_boxes(s_screen, view);
+    xm_widgets_draw_icons(s_screen, view);
     xm_widgets_draw_strokes(s_screen, view);
     xm_ui_draw_lines(s_screen, view);
     xm_status_apply(s_screen, view, soc);

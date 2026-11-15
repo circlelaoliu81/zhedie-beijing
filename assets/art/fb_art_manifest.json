@@ -5,72 +5,72 @@
     "intro_room": {
       "kind": "scene",
       "w": 240,
-      "h": 104,
-      "bytes": 49920,
-      "sha256": "bc5509941aa8a55cec3dc0daa05e71d4708152e61208e92896aef088a35dcfe2"
+      "h": 140,
+      "bytes": 67200,
+      "sha256": "2cf7ecb0ef1f810ce2266d83d6e5500f74d6d17576f8bdf941b07bc6c960d899"
     },
     "home_street": {
       "kind": "scene",
       "w": 240,
       "h": 104,
       "bytes": 49920,
-      "sha256": "c863e041b5383c8026c7a8d1edbdd14e9df6a6385c5011ca7fa8808cb3a76e36"
+      "sha256": "6399960916a8afb91a90e737b8895a847f7013c2639c672bf485b5fa2d099600"
     },
     "market_stall": {
       "kind": "scene",
       "w": 240,
       "h": 104,
       "bytes": 49920,
-      "sha256": "914a38e93cf6c59ddbebd272a92ca4ed0aaa782bd722972d16264b6ac8351adb"
+      "sha256": "e5bfcfcfd75b8b73b6d59e6f6ddef382f5592226cba5766fa02bcb997f59028b"
     },
     "delivery_road": {
       "kind": "scene",
       "w": 240,
       "h": 104,
       "bytes": 49920,
-      "sha256": "55df337ecdf42be75db77804d494ae57ef52cb4001f9bc091a970df45c8adbed"
+      "sha256": "558ce4e11a3fc16791de7706f380ee8e9e3483ebb364c37100b500451595f751"
     },
     "gig_warehouse": {
       "kind": "scene",
       "w": 240,
       "h": 104,
       "bytes": 49920,
-      "sha256": "62e38c03bc4d3c24a355512f3366cbf3e7e866d6c0b8d9a141cadc603f67150f"
+      "sha256": "4c312b484bd2192b1f27758d460ff7188f5054b6371b7d14a2fd247f7b018e2a"
     },
     "ride_car": {
       "kind": "scene",
       "w": 240,
       "h": 104,
       "bytes": 49920,
-      "sha256": "d98129ef2ad44d31861a5b3f20158fcd57166ad58ed1e8659dbf747271f013b8"
+      "sha256": "7ebeee03f7958f683a3e43a0d6ff9177fe0f0d9b05c3a1779fbbff3b4a8c618c"
     },
     "live_room": {
       "kind": "scene",
       "w": 240,
       "h": 104,
       "bytes": 49920,
-      "sha256": "22d873e4695c117cc0734aa1def62a73d16faf1c2a9743c57d32b67f7c9c0750"
+      "sha256": "8db6c32187795616e9a136ab5d260ef2b4732ceca8f38cd2555a2aed69c253e4"
     },
     "report_night": {
       "kind": "scene",
       "w": 240,
       "h": 104,
       "bytes": 49920,
-      "sha256": "6a696d3cdfc1949c017e93dd92975ecde35406bc157bf2b77f6dd8325eb6b677"
+      "sha256": "a2545fd0738df61192ab2a9005a67be64f4e3c8640336a7c29cdc52f95c7c44a"
     },
     "event_rain": {
       "kind": "scene",
       "w": 240,
       "h": 104,
       "bytes": 49920,
-      "sha256": "cb93efadfd39a9c4330670f8215c5e06c277c665c4f0f5b4d1d7f246e27fda52"
+      "sha256": "65f297bd87f77add49d7fd3cc09d281acd34f3bace603f7c09c82c6b3947ab8c"
     },
     "ending_dawn": {
       "kind": "scene",
       "w": 240,
       "h": 104,
       "bytes": 49920,
-      "sha256": "a92850cf10cab0b5053fb71cbf9f71867ba65455bb732e19f39cbb0c5d56b12b"
+      "sha256": "c18f0145ac5a269ecfaf861687fdc8d260d712340dcf2fcd8ee4912fb85025b1"
     },
     "cash": {
       "kind": "icon",

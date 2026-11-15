@@ -7,8 +7,8 @@
 /* 场景图：240x104 横幅（封面/结局另用 240x320 全屏）。 */
 
 #define FB_SCENE_INTRO_ROOM_W 240u
-#define FB_SCENE_INTRO_ROOM_H 104u
-#define FB_SCENE_INTRO_ROOM_BYTES 49920u
+#define FB_SCENE_INTRO_ROOM_H 140u
+#define FB_SCENE_INTRO_ROOM_BYTES 67200u
 extern const uint16_t *const fb_scene_intro_room;
 
 #define FB_SCENE_HOME_STREET_W 240u

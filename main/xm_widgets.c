@@ -118,7 +118,10 @@ void xm_widgets_draw_icons(lv_obj_t *screen, const xm_view_t *view) {
 
 void xm_widgets_draw_boxes(lv_obj_t *screen, const xm_view_t *view) {
     if (!screen || !view) return;
-    for (uint8_t i = 0; i < view->box_n && i < 32u; ++i) {
+    /* 上限必须跟视图模型的容量走。这里曾经写死 32，而 XM_VIEW_BOX_MAX 后来
+     * 提到 40（说明页/首页需要更多框），多出来的 8 个框会被静默丢掉 ——
+     * host 预览照画不误，只有真机上少几块，正是"假绿"的典型。 */
+    for (uint8_t i = 0; i < view->box_n && i < XM_VIEW_BOX_MAX; ++i) {
         const xm_view_box_t *box = &view->boxes[i];
         lv_obj_t *obj = lv_obj_create(screen);
         lv_obj_set_pos(obj, box->x, box->y);

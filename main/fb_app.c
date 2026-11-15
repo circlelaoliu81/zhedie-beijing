@@ -218,44 +218,23 @@ static void draw_bar(xm_view_t *v, int x, int y, int w, int h, int pct,
     if (fill > 0) v_rect(v, x, y, (uint16_t)fill, (uint16_t)h, color, true);
 }
 
-/* 顶部场景横幅。整幅 240x104 直接指向 Flash，不做解码也不做缩放。 */
-static void draw_scene(xm_view_t *v, fb_scene_id_t id) {
+/* 顶部场景横幅。整幅直接指向 Flash，不做解码也不做缩放。
+ * y 由调用方给：封面没有状态条，图要从 0 开始铺满，其他页压在状态条下面。 */
+static void draw_scene_at(xm_view_t *v, fb_scene_id_t id, int y) {
     if (id >= FB_SC_COUNT) return;
     fb_scene_t sc = scene_of(id);
     v->image = sc.data;
     v->image_x = 0;
-    v->image_y = FB_SCENE_Y;
+    v->image_y = (int16_t)y;
     v->image_w = sc.w;
     v->image_h = sc.h;
     v->image_id = (uint8_t)id;
-    /* 场景图下沿压一条深线，把图和内容区分开，避免文字像浮在画里 */
-    v_rect(v, 0, FB_SCENE_Y + FB_SCENE_H, 240, 2, 0x090C12u, true);
+    /* 图下沿压一条深线，把图和内容区分开，避免文字像浮在画里 */
+    v_rect(v, 0, y + (int)sc.h, 240, 2, 0x090C12u, true);
 }
 
-/* 一天的账本角标：上面一行是干了几小时，下面一行是今晚能睡几小时 + 白天困不困。
- * 240x320 的内容区被数据卡和菜单吃满，这两条硬信息只能压进场景图 ——
- * 深底叠在画面右下角，十张场景图在那个位置都是暗部，压上去不遮主体。
- * 工时行：没干满橙色，24 小时干满转红；睡眠行：睡够青、犯困黄、撑不住红。 */
-static void draw_hours(fb_app_t *app, xm_view_t *v) {
-    const fb_state_t *st = &app->st;
-    uint8_t left = fb_hours_left(st);
-    uint8_t sleep = fb_sleep_hours(st);
-    int x = 130;
-    int y = FB_SCENE_Y + FB_SCENE_H - 36;   /* 94..126，落在场景图内 */
-    v_rect(v, x, y, 104, 30, 0x0B0E14u, true);
-
-    uint32_t work_fg = left == 0 ? XM_COLOR_RED : FB_COLOR_ACCENT;
-    v_line(v, x + 5, y + 2, 94, 12, work_fg, XM_ALIGN_LEFT,
-           pool_put(app, "已干 %u 小时", (unsigned)st->hours_used));
-
-    /* 颜色和文字双通道：睡够灰、缺觉黄、危险红，同时把瞌睡等级写在后面 ——
-     * 状态条只有 12px 一行，颜色看趋势、文字看等级，两个都得有。 */
-    uint32_t sleep_fg = XM_COLOR_SUBINK;
-    if (sleep < FB_SLEEP_CRIT) sleep_fg = XM_COLOR_RED;
-    else if (sleep < FB_SLEEP_OK || st->drowsy != FB_DROWSY_NONE) sleep_fg = FB_COLOR_WARN;
-    v_line(v, x + 5, y + 16, 94, 12, sleep_fg, XM_ALIGN_LEFT,
-           pool_put(app, "睡 %u 时 · %s", (unsigned)sleep,
-                    fb_drowsy_label(st->drowsy)));
+static void draw_scene(xm_view_t *v, fb_scene_id_t id) {
+    draw_scene_at(v, id, FB_SCENE_Y);
 }
 
 /* 状态条：图标 + 日期。右上角电量由 xm_status 负责，这里只用到 x=176。 */
@@ -313,6 +292,18 @@ static void draw_card(fb_app_t *app, xm_view_t *v, int x, int y, int w, int h,
                  text, NULL, 0);
 }
 
+/* 犯困时占掉底部提示行。
+ *
+ * 瞌睡会把收入打到八折（撑不住时六折），这件事必须在按 OK 之前就看见 ——
+ * 原先它藏在场景图右下角那个小角标的第二行里，字只有 12px，
+ * 玩家干着活也未必发现自己在白干。提示行本来就是"按下去会发生什么"，
+ * 让警告顶掉键位说明是划算的：走到这一步的人早就会用上下键了。 */
+static const char *hint_or_drowsy(const fb_app_t *app, const char *normal) {
+    if (app->st.drowsy == FB_DROWSY_CRITICAL) return "撑不住了 · 收入六折，快收工";
+    if (app->st.drowsy == FB_DROWSY_TIRED) return "犯困 · 收入八折，早点收工";
+    return normal;
+}
+
 static void draw_hint(fb_app_t *app, xm_view_t *v, const char *hint) {
     /* 提示行上方一条细线：把「这是按键说明，不是正文」标出来，
      * 否则底部这行和上面的数据在视觉上是同一层级 */
@@ -344,6 +335,34 @@ static uint8_t draw_para(fb_app_t *app, xm_view_t *v, int x, int y,
             ++count;
         }
         buf[n] = '\0';
+        /* 按行宽硬切会把词劈开 —— 「因为希望这东西我买不起」被切成
+         * 「…希望这东」/「西我买不起」，读起来是断的。中文没有词边界可断，
+         * 但句子里有标点：宁可这一行短一点，也要断在标点后面。
+         * 只在断点落在半行之后时才回退，避免制造两三个字的孤行。 */
+        if (*p && count >= chars_per_line) {
+            static const char *k_marks[] = {"，", "。", "！", "？", "；", "：", "、", "…"};
+            size_t best = 0;
+            for (size_t m = 0; m < sizeof(k_marks) / sizeof(k_marks[0]); ++m) {
+                const char *q = buf;
+                size_t ml = strlen(k_marks[m]);
+                while ((q = strstr(q, k_marks[m])) != NULL) {
+                    size_t off = (size_t)(q - buf) + ml;
+                    if (off > best) best = off;
+                    q += ml;
+                }
+            }
+            if (best > 0 && best * 2 >= n) {
+                p -= (n - best);
+                count = 0;
+                for (size_t i = 0; i < best;) {
+                    uint8_t len = xm_utf8_char_len((uint8_t)buf[i]);
+                    i += (len ? len : 1);
+                    ++count;
+                }
+                n = best;
+                buf[n] = '\0';
+            }
+        }
         /* 宽度必须跟着 x 走。原先写死 224，一给左边留缩进（x=30）
          * 就直接把文字排到屏幕外 —— 门禁的横向越界检查正是拦这个的。 */
         v_line(v, x, y + rows * line_h, (uint16_t)(240 - x - 8), size, color,
@@ -428,87 +447,162 @@ static uint32_t bg_color(uint8_t i) {
 static void render_intro(fb_app_t *app, xm_view_t *v) {
     size_t n = 0;
     const fb_bg_t *bgs = fb_bg_table(&n);
-    draw_scene(v, FB_SC_INTRO);
+    /* 封面没有状态条，图从 y=0 铺满 240x140 —— 那 140px 里最亮的是窗外那片
+     * 城市，它就是这一局要抢的东西。旧版图只占 104 高、上面还空着 26px 黑边，
+     * 屏幕四成都浪费掉了。 */
+    draw_scene_at(v, FB_SC_INTRO, 0);
 
-    v_line(v, 8, 136, 224, 24, XM_COLOR_INK, XM_ALIGN_CENTER,
+    /* 标题压在场景图下沿的深色带上，而不是浮在纯黑背景里 ——
+     * 标题 24px、副标题 12px、下面一条短装饰线，三件套把封面顶成一个招牌。 */
+    v_line(v, 8, 146, 224, 24, XM_COLOR_INK, XM_ALIGN_CENTER,
            pool_raw(app, "折叠北京"));
-    v_line(v, 8, 163, 224, 12, FB_COLOR_ACCENT, XM_ALIGN_CENTER,
-           pool_raw(app, "三层空间 · 一百天"));
+    v_line(v, 8, 172, 224, 12, FB_COLOR_ACCENT, XM_ALIGN_CENTER,
+           pool_raw(app, "一百天 · 活下去"));
+    v_rect(v, 104, 188, 32, 2, FB_COLOR_ACCENT, true);
 
-    /* 有存档时多出「继续」一项，三个开局只能压到 26 行距（24 高）
-     * 才塞得进 hint 线以内；没存档就放宽到 32 行距并在标题下加装饰线。 */
+    /* 有存档时多出「继续」一项，四项只能压到 25 行距（23 高）。 */
     if (app->have_save) {
-        draw_card_ex(app, v, 6, 180, 228, 30, app->sel == 0, true, FB_ICO_DOOR,
+        draw_card_ex(app, v, 6, 192, 228, 26, app->sel == 0, true, FB_ICO_DOOR,
                      FB_COLOR_ACCENT,
                      pool_put(app, "继续上次：第 %d 天", (int)app->save_day),
                      "续档", XM_COLOR_SUBINK);
         for (uint8_t i = 0; i < (uint8_t)n && i < 3; ++i) {
-            draw_card_ex(app, v, 6, 214 + i * 26, 228, 24, app->sel == i + 1,
+            draw_card_ex(app, v, 6, 221 + i * 25, 228, 23, app->sel == i + 1,
                          true, bg_icon(i), bg_color(i), pool_raw(app, bgs[i].name),
                          pool_put(app, "¥%d", (int)bgs[i].cash), XM_COLOR_SUBINK);
         }
-        draw_hint(app, v, "↑↓ 选    OK 确定");
     } else {
-        v_rect(v, 108, 179, 24, 2, FB_COLOR_ACCENT, true);
         for (uint8_t i = 0; i < (uint8_t)n && i < 3; ++i) {
-            draw_card_ex(app, v, 6, 188 + i * 32, 228, 28, app->bg_sel == i, true,
+            draw_card_ex(app, v, 6, 196 + i * 32, 228, 30, app->bg_sel == i, true,
                          bg_icon(i), bg_color(i), pool_raw(app, bgs[i].name),
                          pool_put(app, "¥%d", (int)bgs[i].cash), XM_COLOR_SUBINK);
         }
-        draw_hint(app, v, "↑↓ 选开局    OK 开始");
     }
+    draw_hint(app, v, app->have_save ? "↑↓ 选    OK 确定" : "↑↓ 选开局    OK 开始");
+}
+
+/* 24 小时条：把「今天已经花掉多少小时」画成一条进度。
+ *
+ * 之前这一页把工时和睡眠压成两行 12px 小字，糊在场景图右下角 ——
+ * 而「还剩几小时」是这一局最核心的资源，它必须一眼看得出来。
+ * 一根 240x8 的条：橙色是干掉的，暗色是还能睡的，
+ * x=160 那道刻度是 8 小时睡眠线，越过它再干，今晚就睡不够。 */
+#define FB_DAYBAR_Y (FB_CONTENT_Y - 8)   /* 贴在画面最下沿，刚好接上内容区 */
+
+static void draw_day_bar(fb_app_t *app, xm_view_t *v) {
+    const fb_state_t *st = &app->st;
+    const int y = FB_DAYBAR_Y;
+    int used = st->hours_used;
+    if (used > FB_DAY_HOURS) used = FB_DAY_HOURS;
+    v_rect(v, 0, y, 240, 8, FB_COLOR_BAR_BG, true);
+    int w = 240 * used / FB_DAY_HOURS;
+    if (w > 0) {
+        v_rect(v, 0, y, (uint16_t)w, 8,
+               used >= 20 ? XM_COLOR_RED : FB_COLOR_ACCENT, true);
+    }
+    /* 8 小时睡眠线：刻度比条高 1px，压在两色交界上方才看得见。
+     * 一小时都没干的时候不画 —— 那时光标线上什么都没有，孤零零一道白痕
+     * 只会被当成渲染脏点。 */
+    if (used > 0) {
+        v_rect(v, 240 * (FB_DAY_HOURS - FB_SLEEP_OK) / FB_DAY_HOURS, y - 1, 1, 10,
+               0xEDE6D8u, true);
+    }
+}
+
+/* 主面板底部的一格入口：图标在上、文字在下。
+ *
+ * 六个入口原先排成 2 列 3 行的等大方块，六张卡长得一模一样，
+ * 看上去像一张设置菜单 —— 玩家找不到该按哪个。现在只留一个
+ * 「去干活」大按钮当主行动，其余五个压成图标格，主次立刻分明；
+ * 而且三键只有上/下，一横排的宫格和下移一格的走向是一致的。 */
+static void draw_dock(fb_app_t *app, xm_view_t *v, int x, int y, int w, int h,
+                      bool selected, fb_icon_id_t icon, uint32_t accent,
+                      const char *label) {
+    v_rect(v, x, y, (uint16_t)w, (uint16_t)h, selected ? FB_COLOR_SELBG : FB_COLOR_CARD, true);
+    v_rect(v, x, y, (uint16_t)w, (uint16_t)h, selected ? accent : XM_COLOR_LINE, false);
+    /* 顶部 3px 色条：未选中也保留，靠颜色定位入口，不靠读字 */
+    v_rect(v, x, y, (uint16_t)w, 3, selected ? accent : dim_color(accent, 60), true);
+    /* 图标居中偏上、文字贴底：40 高的格子里 16+12 只占 28，必须让两者
+     * 之间留出空隙，否则 16px 字实际渲染高度会压到图标下沿，
+     * 看起来像糊在一起。 */
+    v_icon(v, icon, x + (w - (int)FB_ICON_SIZE) / 2, y + 5);
+    v_line(v, x, y + h - 16, (uint16_t)w, 12,
+           selected ? accent : XM_COLOR_SUBINK, XM_ALIGN_CENTER,
+           pool_raw(app, label));
 }
 
 static void render_home(fb_app_t *app, xm_view_t *v) {
     const fb_state_t *st = &app->st;
     draw_status(app, v, FB_ICO_CAL, pool_put(app, "第 %d 天 / 100", st->day));
     draw_scene(v, FB_SC_HOME);
-    draw_hours(app, v);
 
-    /* 今日新闻：主面板是每天必看的一屏，北京的天气和行情得在这儿交代。
-     * 内容区被数据卡和菜单吃满，只能压一条 18px 深底在场景图上沿 ——
-     * 十张场景图顶部都是天空或墙面，压上去不遮主体。 */
-    v_rect(v, 0, FB_SCENE_Y, 240, 18, 0x0B0E14u, true);
-    v_line(v, 4, FB_SCENE_Y + 3, 232, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
+    /* 场景图不再被任何东西压住。原先新闻条压在图顶 18px、工时段压在图右下
+     * 104x30，一张 240x104 的图只剩中间一条 240x56 的缝 —— 那是这一页
+     * 「看着不吸引人」的真正原因：观众从来没见过完整的那张画。 */
+    draw_day_bar(app, v);
+
+    /* 今日新闻：北京的天和行情每天都要交代，单独占一条，不叠在画上 */
+    const int news_y = FB_CONTENT_Y + 2;
+    v_rect(v, 0, news_y, 240, 18, 0x0B0E14u, true);
+    v_line(v, 6, news_y + 3, 228, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
            pool_clip(app, fb_news_today(st), 18));
 
-    /* 现金：小号 ¥ + 大号数字。符号压在数字左上角，
-     * 比"¥1234"整体一个字号更像个账本，也给数字让出宽度。 */
-    v_icon(v, FB_ICO_CASH, 8, 139);
-    /* ¥ 与 24px 数字底部对齐（133+24=157 = 141+16），
-     * 上移 4px 之后才和下面那行账目留出 3px 空隙 */
-    v_line(v, 30, 141, 14, 16, XM_COLOR_SUBINK, XM_ALIGN_LEFT, "¥");
-    v_line(v, 44, 133, 76, 24, st->cash < 100 ? FB_COLOR_WARN : XM_COLOR_INK,
+    /* 现金：这一页的主数字。¥ 与 24px 数字底部对齐，数字用暖白，
+     * 快到零时转琥珀 —— 钱少到一定程度，颜色比数字更早被注意到。 */
+    v_icon(v, FB_ICO_CASH, 8, news_y + 24);
+    /* ¥ 的框必须收在数字左边界之前（x=40）：24px 数字的框是 158..182，
+     * 16px 的 ¥ 如果给到 x=28 w=14，两个 label 会在 x=40..42 上重叠 ——
+     * 布局门禁就是靠这个判出"两行压字"的。 */
+    v_line(v, 26, news_y + 30, 12, 16, XM_COLOR_SUBINK, XM_ALIGN_LEFT, "¥");
+    v_line(v, 40, news_y + 22, 82, 24, st->cash < 100 ? FB_COLOR_WARN : XM_COLOR_INK,
            XM_ALIGN_LEFT, pool_put(app, "%d", (int)st->cash));
-    v_line(v, 30, 160, 90, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
-           pool_put(app, "债%d·存%d", (int)st->debt, (int)st->savings));
 
-    /* 健康 / 精力：条 + 数字。右边一列，和数据形成两栏。
-     * 20% 处压一道深色刻度 —— 掉到线下就该歇了，纯数字给不出紧迫感。 */
-    v_icon(v, FB_ICO_HEART, 124, 137);
-    draw_bar(v, 146, 141, 84, 8, st->health,
-             st->health < 30 ? XM_COLOR_RED : XM_COLOR_BLUE);
-    v_rect(v, 146 + 84 * 20 / 100, 141, 1, 8, 0x0B0E14u, true);
-    v_line(v, 146, 151, 84, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
-           pool_put(app, "健康 %d", st->health));
-
-    v_icon(v, FB_ICO_BOLT, 124, 159);
-    draw_bar(v, 146, 163, 84, 8, st->stamina,
-             st->stamina < 20 ? FB_COLOR_WARN : FB_COLOR_ACCENT);
-    v_rect(v, 146 + 84 * 20 / 100, 163, 1, 8, 0x0B0E14u, true);
-    v_line(v, 146, 173, 84, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
-           pool_put(app, "精力 %d", st->stamina));
-
-    /* 菜单：2 列 x 3 行。六个格子各配一个色，扫一眼就能定位 */
-    for (uint8_t i = 0; i < FB_MENU_COUNT; ++i) {
-        const int col = i % 2, row = i / 2;
-        draw_card_ex(app, v, 6 + col * 118, 188 + row * 34, 110, 30,
-                     app->sel == i, true, menu_icon(i), menu_color(i),
-                     pool_raw(app, menu_label(i)), NULL, 0);
+    /* 健康 / 精力：图标 + 条 + 数值。20% 处一道深色刻度，
+     * 掉到线下就该歇了 —— 纯数字给不出紧迫感。 */
+    for (int i = 0; i < 2; ++i) {
+        const int ry = news_y + 24 + i * 18;
+        const int val = i == 0 ? st->health : (int)st->stamina;
+        uint32_t col;
+        if (i == 0) col = st->health < 30 ? XM_COLOR_RED : XM_COLOR_BLUE;
+        else col = st->stamina < 20 ? FB_COLOR_WARN : FB_COLOR_ACCENT;
+        v_icon(v, i == 0 ? FB_ICO_HEART : FB_ICO_BOLT, 128, ry);
+        draw_bar(v, 148, ry + 3, 56, 7, val, col);
+        v_rect(v, 148 + 56 * 20 / 100, ry + 3, 1, 7, 0x0B0E14u, true);
+        v_line(v, 204, ry, 28, 12, XM_COLOR_SUBINK, XM_ALIGN_RIGHT,
+               pool_put(app, "%d", val));
     }
+
+    /* 一行账目：欠债、存款、干了几小时、还能睡几小时、现在困不困。
+     * 全是硬信息，但不该抢现金的位置，所以压成一条 12px。 */
+    const int sub_y = news_y + 58;
+    v_line(v, 8, sub_y, 224, 12,
+           (st->debt > 0 || st->sleep_debt >= 4) ? FB_COLOR_WARN : XM_COLOR_SUBINK,
+           XM_ALIGN_LEFT,
+           pool_put(app, "债%d·存%d·干%u时·睡%u时·%s", (int)st->debt,
+                    (int)st->savings, (unsigned)st->hours_used,
+                    (unsigned)fb_sleep_hours(st), fb_drowsy_label(st->drowsy)));
+
+    /* 主行动：整块实心橙。选中时换成最亮的一档，未选中压到 32% ——
+     * 它任何时候都是这一屏最亮的东西，但不会盖掉选中反馈。 */
+    const bool work_sel = app->sel == FB_MENU_WORK;
+    v_rect(v, 6, 214, 228, 34,
+           work_sel ? FB_COLOR_ACCENT : dim_color(FB_COLOR_ACCENT, 32), true);
+    v_line(v, 22, 221, 140, 20,
+           work_sel ? 0x1A1008u : FB_COLOR_ACCENT, XM_ALIGN_LEFT,
+           pool_raw(app, "去干活"));
+    v_line(v, 166, 226, 62, 12,
+           work_sel ? 0x4A2A10u : dim_color(FB_COLOR_ACCENT, 75), XM_ALIGN_RIGHT,
+           pool_put(app, "还剩 %u 时", (unsigned)fb_hours_left(st)));
+
+    /* 其余五个入口排成一横排图标格 */
+    for (uint8_t i = 1; i < FB_MENU_COUNT; ++i) {
+        draw_dock(app, v, 6 + (int)(i - 1) * 46, 252, 44, 40, app->sel == i,
+                  menu_icon(i), menu_color(i), menu_label(i));
+    }
+
     /* 底部这一行优先给「上一次干活的结果」：一天能连打几份工，
      * 玩家必须看到上一单挣了多少、扣了什么，否则连干三份是在盲赌。 */
-    draw_hint(app, v, app->toast[0] ? app->toast : "↑↓←→ 选择    OK 确定");
+    draw_hint(app, v, app->toast[0] ? app->toast : "↑↓ 选择    OK 确定");
 }
 
 static void render_lines(fb_app_t *app, xm_view_t *v) {
@@ -516,7 +610,7 @@ static void render_lines(fb_app_t *app, xm_view_t *v) {
     const fb_line_meta_t *meta = fb_line_table(&n);
     draw_status(app, v, FB_ICO_WORK, "去哪儿挣钱");
     draw_scene(v, FB_SC_HOME);
-    draw_hours(app, v);
+    draw_day_bar(app, v);
 
     /* 五条线全展开需要 5x40=200，152 的内容区放不下，所以选中的展开成两行、
      * 其余压到 26。四条 28 + 一条 44 = 156，落在 134..290。
@@ -561,7 +655,7 @@ static void render_lines(fb_app_t *app, xm_view_t *v) {
     if (!fb_line_unlocked(&app->st, app->sel < n ? app->sel : 0)) {
         hint = (cur->startup > app->st.cash) ? "OK 去借钱置办装备" : "OK 置办装备并开工";
     }
-    draw_hint(app, v, hint);
+    draw_hint(app, v, hint_or_drowsy(app, hint));
 }
 
 /* 摆摊页：点位 + 五种货 + 出摊
@@ -578,7 +672,7 @@ static void render_market(fb_app_t *app, xm_view_t *v) {
     draw_status(app, v, FB_ICO_BOX,
                 pool_put(app, "库存 %u/%u", st->inv_total, st->storage));
     draw_scene(v, FB_SC_MARKET);
-    draw_hours(app, v);
+    draw_day_bar(app, v);
 
     /* 7 项要塞进 134..284：每项 21 行距（20 高），出摊卡 24 高。
      * 早先 24 行距 + 5 货 + 出摊 = 150，加上点位行就压到提示行了。 */
@@ -597,7 +691,7 @@ static void render_market(fb_app_t *app, xm_view_t *v) {
     }
     draw_card(app, v, 6, 260, 228, 24, app->sel == n + 1, true,
               FB_ICO_CASH, "出摊卖货");
-    draw_hint(app, v, "OK 换点位/进货/出摊");
+    draw_hint(app, v, hint_or_drowsy(app, "OK 换点位/进货/出摊"));
 }
 
 static void render_gig(fb_app_t *app, xm_view_t *v) {
@@ -605,17 +699,21 @@ static void render_gig(fb_app_t *app, xm_view_t *v) {
     const fb_gig_t *gigs = fb_gig_table(&n);
     draw_status(app, v, FB_ICO_BOLT, "日结零工");
     draw_scene(v, FB_SC_GIG);
-    draw_hours(app, v);
+    draw_day_bar(app, v);
 
     /* 6 个工种要塞进 134..286 这 152px：每项 23 高、行距 25，名称/工资/体力压成一行。
      * 早先按 42 行距排（每项占标题+描述两行），最后两项直接排到了屏幕外面。 */
     for (uint8_t i = 0; i < (uint8_t)n; ++i) {
         int y = 134 + i * 25;
-        draw_card(app, v, 6, y, 228, 23, app->sel == i, true, FB_ICO_BOLT,
-                  pool_put(app, "%s ¥%d · 精力%u", gigs[i].name,
-                           (int)gigs[i].wage, gigs[i].stamina));
+        /* 左栏工种+工资，右栏精力。原先每行前面挂一个闪电图标、后面接
+         * 「· 精力28」，六行下来文字顶到卡片右边缘，图标又行行重复、
+         * 一点信息量都没有 —— 名字和数字分栏比加图标清楚得多。 */
+        draw_card_ex(app, v, 6, y, 228, 23, app->sel == i, true, FB_ICO_NONE,
+                     FB_COLOR_ACCENT,
+                     pool_put(app, "%s  ¥%d", gigs[i].name, (int)gigs[i].wage),
+                     pool_put(app, "精力 %u", gigs[i].stamina), XM_COLOR_SUBINK);
     }
-    draw_hint(app, v, "↑↓ 选工种    OK 上工");
+    draw_hint(app, v, hint_or_drowsy(app, "↑↓ 选工种    OK 上工"));
 }
 
 static void render_topic(fb_app_t *app, xm_view_t *v) {
@@ -623,7 +721,7 @@ static void render_topic(fb_app_t *app, xm_view_t *v) {
     const fb_topic_t *tp = fb_topic_table(&n);
     draw_status(app, v, FB_ICO_STAR, pool_put(app, "粉丝 %u", app->st.fans));
     draw_scene(v, FB_SC_LIVE);
-    draw_hours(app, v);
+    draw_day_bar(app, v);
 
     /* 原先标题 16px 排在 y+3、描述 12px 排在 y+19，行间距只有 16px，
      * 而 16px 字实际渲染高度超过字号本身 —— 两行叠在一起糊成一团。
@@ -649,7 +747,7 @@ static void render_topic(fb_app_t *app, xm_view_t *v) {
            XM_ALIGN_LEFT,
            pool_put(app, "连播 %u 天 · 涨粉 ×%u.%u", (unsigned)app->st.live_streak,
                     bonus / 100, (bonus % 100) / 10));
-    draw_hint(app, v, "↑↓ 选题    OK 开播");
+    draw_hint(app, v, hint_or_drowsy(app, "↑↓ 选题    OK 开播"));
 }
 
 /* 外卖 / 网约车：装备 + 跑 */
@@ -659,7 +757,7 @@ static void render_vehicle(fb_app_t *app, xm_view_t *v, uint8_t line) {
     fb_icon_id_t ic = line == FB_LINE_DELIVERY ? FB_ICO_BOX : FB_ICO_CARD;
     draw_status(app, v, ic, line == FB_LINE_DELIVERY ? "送外卖" : "网约车");
     draw_scene(v, line == FB_LINE_DELIVERY ? FB_SC_DELIVERY : FB_SC_RIDE);
-    draw_hours(app, v);
+    draw_day_bar(app, v);
 
     if (!unlocked) {
         /* 价格取引擎的行当元数据，不在这里另抄一份数字 ——
@@ -693,7 +791,7 @@ static void render_vehicle(fb_app_t *app, xm_view_t *v, uint8_t line) {
                pool_put(app, "精力 %d/100 · 还能干 %u 小时", st->stamina,
                         (unsigned)fb_hours_left(st)));
     }
-    draw_hint(app, v, "OK 确定    长按返回");
+    draw_hint(app, v, hint_or_drowsy(app, "OK 确定    长按返回"));
 }
 
 /* 财务页：借钱 / 还债 / 存钱。5 张卡按 31 行距排在 140..291，
@@ -762,12 +860,16 @@ static void render_report(fb_app_t *app, xm_view_t *v) {
     v_line(v, 8, 188, 224, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
            pool_put(app, "干了 %u 小时，睡 %u 小时",
                     (unsigned)st->hours_used, (unsigned)st->last_sleep));
+    /* 「健康 95 · 精神」原来读起来像少了个数 —— 瞌睡标签只有真犯困时才有意义，
+     * 平时别挂在健康后面冒充字段。 */
+    const char *drowsy_note = st->drowsy == FB_DROWSY_CRITICAL ? " · 撑不住"
+                            : st->drowsy == FB_DROWSY_TIRED ? " · 犯困" : "";
     v_line(v, 8, 204, 224, 12,
            st->sleep_debt >= 4 ? XM_COLOR_RED
                                : (st->sleep_debt ? FB_COLOR_WARN : XM_COLOR_SUBINK),
            XM_ALIGN_LEFT,
-           pool_put(app, "欠觉 %u 天 · 健康 %d · %s", (unsigned)st->sleep_debt,
-                    st->health, fb_drowsy_label(st->drowsy)));
+           pool_put(app, "欠觉 %u 天 · 健康 %d%s", (unsigned)st->sleep_debt,
+                    st->health, drowsy_note));
 
     /* 当日语录：亏了给丧的陪着丧，挣了给毒鸡汤扎一刀。这是《活着》的底色。 */
     int32_t net = st->day_earned - st->day_spent;
@@ -775,8 +877,9 @@ static void render_report(fb_app_t *app, xm_view_t *v) {
     draw_para(app, v, 8, 222, fb_quote_daily(st->day, 1, net), FB_SMALL_W, 15, 12,
               qk == FB_QUOTE_SANG ? XM_COLOR_SUBINK : FB_COLOR_ACCENT, 2);
 
-    /* 明细（吃饭/交通/房租/过劳……）塞不下就让 draw_para 截断 */
-    draw_para(app, v, 8, 254, app->toast, FB_SMALL_W, 15, 12, XM_COLOR_INK, 2);
+    /* 明细（吃饭/交通/房租/过劳……）只给一行。总数已经在上面 +248/-46 里了，
+     * 这里的作用是让玩家看到钱花在哪，不需要全列。 */
+    draw_para(app, v, 8, 258, app->toast, FB_SMALL_W, 15, 12, XM_COLOR_INK, 1);
     draw_hint(app, v, "OK 继续");
 }
 

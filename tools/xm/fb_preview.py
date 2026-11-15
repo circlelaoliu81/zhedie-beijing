@@ -79,7 +79,7 @@ def render(page, out_path):
     draw = ImageDraw.Draw(img)
     draw._image = img
 
-    # 层级必须与固件 xm_ui.c 一致：image → icons → boxes → lines
+    # 层级必须与固件 xm_ui.c 一致：image → boxes → icons → lines
     im = page.get("image") or {}
     if im.get("name"):
         src = ART / (im["name"] + ".png")
@@ -89,6 +89,13 @@ def render(page, out_path):
                 art = art.resize((im["w"], im["h"]), Image.NEAREST)
             img.paste(art, (im["x"], im["y"]))
 
+    for b in page.get("boxes", []):
+        x, y, w, h = b["x"], b["y"], b["w"], b["h"]
+        col = rgb(b["color"])
+        if b["fill"]:
+            draw.rectangle([x, y, x + w - 1, y + h - 1], fill=col)
+        elif b["border"]:
+            draw.rectangle([x, y, x + w - 1, y + h - 1], outline=col)
     for ic in page.get("icons", []):
         if not ic.get("name"):
             continue
@@ -100,13 +107,6 @@ def render(page, out_path):
             sprite = sprite.resize((ic["w"], ic["h"]), Image.NEAREST)
         img.paste(sprite, (ic["x"], ic["y"]), sprite)
 
-    for b in page.get("boxes", []):
-        x, y, w, h = b["x"], b["y"], b["w"], b["h"]
-        col = rgb(b["color"])
-        if b["fill"]:
-            draw.rectangle([x, y, x + w - 1, y + h - 1], fill=col)
-        elif b["border"]:
-            draw.rectangle([x, y, x + w - 1, y + h - 1], outline=col)
     for ln in page.get("lines", []):
         draw_text(draw, ln["x"], ln["y"], ln["w"], ln["text"],
                   ln["size"], rgb(ln["color"]), ln["align"])

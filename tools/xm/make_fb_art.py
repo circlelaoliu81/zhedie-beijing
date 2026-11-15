@@ -26,13 +26,18 @@ import math
 import os
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageDraw
 
 REPO = Path(__file__).resolve().parents[2]
 ART = REPO / "assets" / "art"
 GEN = REPO / "main" / "generated"
+# 手绘/AI 插画源图目录。同名 PNG 存在时优先使用它，否则退回下面的程序化场景函数。
+# 源图必须是裁好的目标比例（任意分辨率），本脚本负责降采样与小屏调色。
+SRC = REPO / "assets" / "art_src"
 
 BANNER_W, BANNER_H = 240, 104
+COVER_W, COVER_H = 240, 140   # 封面图比横幅高 36px：那 36px 全给窗外的城市
 FULL_W, FULL_H = 240, 320
 ICON = 16
 
@@ -122,90 +127,242 @@ def city_layer(d, y0, h, base, lit, seed, gaps=()):
         x += bw + 1
 
 
-# ---------------------------------------------------------------- 场景
-def scene_intro_room(d, w, h, S):
-    """出租屋：一只行李箱、一扇亮着别人家灯的窗。
+def windows_big(d, x, y, w, h, base, lit, seed, color=None, step=9, ww=4, hh=4):
+    """近景楼的大窗。
 
-    只放两个主体，各自给足尺寸和描边 —— 之前版本把床、包、门都塞进来，
-    结果每样都只有十几个像素，糊成一片灰。
+    远景用 2x2 点阵是对的（空气透视就是糊），但近景还铺 2x2 会变成
+    等亮度噪声 —— 首页那张旧图的问题就在这里：满屏黄点，读不出楼、
+    读不出远近，也没有任何一处比别处更亮。
     """
-    rrect(d, 0, 0, w, h, (0x1A, 0x21, 0x30))
-    fy = S(66)
-    rrect(d, 0, fy, w, h - fy, C["ground"])
-    rrect(d, 0, fy, w, S(2), mix(C["ground"], C["concrete3"], 0.45))
+    s = seed
+    color = color or C["warm_hi"]
+    for yy in range(y + 4, y + h - hh - 1, step):
+        for xx in range(x + 4, x + w - ww - 1, step):
+            s = (s * 1103515245 + 12345) & 0x7FFFFFFF
+            if (s >> 16) % 1000 >= lit * 1000:
+                continue
+            cc = color if ((s >> 8) % 10) > 3 else mix(color, C["warm"], 0.5)
+            rrect(d, xx, yy, ww, hh, cc)
+            # 窗台一道暗边：没有这道边，四像素方块会飘在墙上
+            rrect(d, xx, yy + hh, ww, 1, mix(base, C["void"], 0.55))
 
-    # 窗：右侧大窗，占约四成宽，是画面唯一光源
-    wx, wy, ww, wh = S(126), S(12), S(92), S(52)
-    rrect(d, wx, wy, ww, wh, C["void"])
-    # 窗外两栋楼 + 稀疏但醒目的大窗（4x5，不是 2x2 噪点）
-    for bx, bh, lit in ((S(132), S(34), 3), (S(178), S(42), 2)):
-        bw = S(26)
-        by = wy + wh - bh
-        rrect(d, bx, by, bw, bh, (0x15, 0x1B, 0x2E))
-        s0 = bx
-        for i in range(lit):
-            rrect(d, bx + S(4) + (i % 2) * S(12), by + S(5) + (i // 2) * S(13), S(7), S(9),
-                  C["warm_hi"])
-    d.pieslice([S(196), wy + S(4), S(212), wy + S(20)], 0, 360, fill=C["warm_hi"])
-    # 窗框：十字窗棂 + 4px 粗边
-    rrect(d, wx, wy + wh // 2 - S(1), ww, S(3), (0x2C, 0x36, 0x46))
-    rrect(d, wx + ww // 2 - S(1), wy, S(3), wh, (0x2C, 0x36, 0x46))
-    # 窗框只能画四条边。之前画成实心矩形，把窗外的楼和灯全盖住了。
-    _e = S(4)
-    rrect(d, wx - _e, wy - _e, ww + 2 * _e, _e, (0x3F, 0x4E, 0x60))
-    rrect(d, wx - _e, wy + wh, ww + 2 * _e, _e, (0x3F, 0x4E, 0x60))
-    rrect(d, wx - _e, wy - _e, _e, wh + 2 * _e, (0x3F, 0x4E, 0x60))
-    rrect(d, wx + ww, wy - _e, _e, wh + 2 * _e, (0x3F, 0x4E, 0x60))
-    rrect(d, wx - S(5), wy - S(5), ww + S(10), S(5), (0x3F, 0x4E, 0x60))   # 窗台板
 
-    # 行李箱：左侧主体，明确轮廓 + 提手 + 两条横带 + 轮
-    lx, ly, lw, lh = S(20), S(30), S(62), S(56)
-    outline_rect(d, lx, ly, lw, lh, (0x7A, 0x46, 0x40), (0x2A, 0x16, 0x18), S(2))
-    for by in (ly + S(14), ly + S(34)):
-        rrect(d, lx + S(2), by, lw - S(4), S(5), (0x9B, 0x5E, 0x52))
-    rrect(d, lx + lw // 2 - S(7), ly - S(6), S(14), S(4), (0x2A, 0x16, 0x18))   # 提手
-    rrect(d, lx + lw // 2 - S(5), ly - S(5), S(10), S(2), (0x7A, 0x46, 0x40))
-    for wxr in (lx + S(8), lx + lw - S(14)):
-        d.ellipse([wxr, ly + lh, wxr + S(8), ly + lh + S(8)], fill=(0x14, 0x18, 0x1F))
-    # 窗光落在箱子侧面，把主体和地面分开
-    rrect(d, lx + lw - S(6), ly + S(4), S(5), lh - S(8), (0x8E, 0x56, 0x4E))
+def fog_band(d, y, w, color, rows=4):
+    """层间雾带。三层城市靠它分层 —— 没有雾，三层楼会糊成一整片。"""
+    for i in range(rows):
+        t = 1.0 - abs(i - rows / 2) / max(1, rows)
+        d.rectangle([0, y + i, w - 1, y + i], fill=mix(C["sky0"], color, 0.10 + 0.16 * t))
 
-    # 地上：一张散落的纸，暗示刚被裁
-    rrect(d, S(96), S(88), S(26), S(11), (0xC8, 0xC6, 0xBA))
-    rrect(d, S(100), S(91), S(16), S(1), (0x8A, 0x88, 0x80))
-    rrect(d, S(100), S(94), S(12), S(1), (0x8A, 0x88, 0x80))
+
+def neon_sign_h(d, x, y, w, h, color):
+    """横向霓虹招牌：外壳 + 内侧发光 + 三块字牌。小屏上「招牌」只要轮廓对就认得。"""
+    rrect(d, x, y, w, h, mix(color, C["void"], 0.72))
+    rrect(d, x, y, w, 1, color)
+    rrect(d, x, y + h - 1, w, 1, color)
+    rrect(d, x, y, 1, h, color)
+    rrect(d, x + w - 1, y, 1, h, color)
+    inner = mix(color, C["void"], 0.28)
+    for i in range(3):
+        rrect(d, x + 4 + i * (w - 8) // 3, y + 3, (w - 10) // 3, h - 6, inner)
+
+
+def neon_sign_v(d, x, y, w, h, color):
+    """竖招牌：老城区最认得出的形状，挂在楼体外侧。"""
+    rrect(d, x, y, w, h, mix(color, C["void"], 0.7))
+    rrect(d, x, y, 1, h, color)
+    rrect(d, x + w - 1, y, 1, h, color)
+    rrect(d, x, y, w, 1, color)
+    rrect(d, x, y + h - 1, w, 1, color)
+    n = max(2, h // 9)
+    for i in range(n):
+        rrect(d, x + 2, y + 3 + i * 8, w - 4, 5, mix(color, C["void"], 0.25))
+
+
+def wet_reflection(d, x, y_top, h, color, strength=0.5, w=3):
+    """湿地面倒影：竖直方向的等宽光柱，越往下越暗。
+
+    不做模糊 —— 240px 宽上模糊等于消失。等宽竖条 + 逐行衰减才是像素画里
+    唯一能读出"地上有水"的做法。
+    """
+    for i in range(h):
+        t = (1.0 - i / max(1, h)) ** 1.6
+        cc = mix(C["road"], color, strength * t)
+        d.rectangle([x, y_top + i, x + w - 1, y_top + i], fill=cc)
+
+
+# ---------------------------------------------------------------- 场景
 
 
 def scene_home_street(d, w, h, S):
-    """街角：三层城市在头顶错位叠着，这是「折叠」的主视觉。"""
-    vgrad(d, 0, 0, w, h, C["sky1"], C["sky0"])
-    for i in range(24):
+    """主面板压面图：暮色里的街，一个人拎着包往回走。
+
+    240x104 只能被当成一张海报来画：一个光源、一层剪影、一个人。
+    前一版把楼、招牌、灯池、月亮全塞进来，结果每个都只有十几个像素，
+    互相吃掉，屏幕上看过去只剩几团糊。
+
+    对比度是这张图的全部。旧版天空和楼都是同一支紫，没有剪影可言；
+    满屏等亮度黄点既读不出楼，也读不出远近。现在按「天空亮、楼压黑、
+    街面反光」三段来排：
+
+        0..68    天空（紫夜 -> 地平线暖霾）+ 月亮 + 两层剪影
+        68..104  街面，上亮下暗（湿地上反着天上的光），人站在中间
+
+    人在 x=88 走，正对着街谷那片最亮的天光 —— 剪影必须压在亮处才看得见。
+    """
+    sky_top = (0x1A, 0x10, 0x30)
+    sky_hz = (0x7A, 0x33, 0x52)
+    hz = S(68)
+
+    for y in range(hz):
+        t = (y / max(1, hz - 1)) ** 1.7
+        d.rectangle([0, y, w - 1, y], fill=mix(sky_top, sky_hz, t))
+    # 地平线附近再压一层薄霾，让剪影的底边不硬切在渐变上
+    for i in range(S(10)):
+        y = hz - S(10) + i
+        d.rectangle([0, y, w - 1, y],
+                    fill=mix(sky_hz, mix(sky_hz, C["white"], 0.35), 0.28 * (1 - i / S(10))))
+
+    for i in range(9):
         s = (i * 1103515245 + 12345) & 0x7FFFFFFF
-        d.point(((s >> 7) % w, (s >> 3) % S(24)), fill=C["grey"])
-    # 三层：远→近，逐层更亮更密
-    city_layer(d, S(16), S(22), C["far"], 0.30, 11, gaps=[(S(70), S(90))])
-    rrect(d, 0, S(38), w, S(1), mix(C["neon_c"], C["void"], 0.55))   # 折叠缝
-    city_layer(d, S(34), S(24), C["mid"], 0.42, 27)
-    rrect(d, 0, S(58), w, S(1), mix(C["neon_p"], C["void"], 0.55))
-    city_layer(d, S(54), S(28), C["near"], 0.55, 43)
-    # 路灯
-    lpx = S(30)
-    rrect(d, lpx, S(40), S(3), S(48), C["concrete2"])
-    rrect(d, lpx - S(2), S(38), S(10), S(3), C["concrete3"])
-    glow(d, lpx + S(3), S(44), S(13), C["warm"], C["near"], 0.5)
-    rrect(d, lpx + S(1), S(43), S(5), S(3), C["warm_hi"])
-    # 右侧店铺招牌：竖排霓虹
-    sx = S(196)
-    rrect(d, sx, S(30), S(11), S(34), mix(C["neon_p"], C["void"], 0.25))
-    for i in range(3):
-        rrect(d, sx + S(3), S(34) + i * S(10), S(5), S(6), C["neon_p"])
-    rrect(d, sx - S(2), S(28), S(15), S(2), C["concrete3"])
-    # 地面与灯下反光
-    gy = S(78)
-    rrect(d, 0, gy, w, h - gy, C["ground"])
-    rrect(d, 0, gy, w, S(1), C["concrete"])
-    rrect(d, lpx - S(8), gy + S(2), S(22), h - gy - S(2), mix(C["ground"], C["warm"], 0.16))
-    rrect(d, sx - S(6), gy + S(2), S(20), h - gy - S(2), mix(C["ground"], C["neon_p"], 0.14))
+        sx, sy = (s >> 9) % w, (s >> 3) % S(22)
+        d.point((sx, sy), fill=mix(C["white"], sky_top, 0.45))
+
+    # 月：唯一冷白，压在右上角空天区
+    glow(d, S(204), S(15), S(9), C["white"], mix(sky_top, sky_hz, 0.15), 0.26)
+    d.ellipse([S(200), S(11), S(208), S(19)], fill=mix(C["white"], sky_hz, 0.25))
+
+    # 两层远剪影：只做天际线，窗点用 2x2 稀疏点，读的是"有楼"不是"有窗"
+    city_layer(d, S(30), S(38), (0x2A, 0x15, 0x33), 0.10, 11, gaps=[(S(70), S(104))])
+    windows(d, S(0), S(44), S(240), S(24), (0x2A, 0x15, 0x33), 0.06, 91,
+            color=mix(C["warm_hi"], sky_hz, 0.35))
+    city_layer(d, S(40), S(28), (0x15, 0x0C, 0x1C), 0.16, 27, gaps=[(S(80), S(100))])
+
+    # ---- 近景楼：左右两栋压到全黑，中间留街谷 ----
+    near = (0x07, 0x05, 0x0A)
+    rrect(d, 0, S(26), S(44), hz - S(26), near)
+    rrect(d, S(3), S(20), S(14), S(6), near)          # 楼顶水箱
+    rrect(d, S(6), S(16), S(8), S(4), (0x12, 0x0A, 0x18))
+    windows_big(d, 0, S(26), S(44), hz - S(26), near, 0.30, 43,
+                color=C["warm_hi"], step=S(12), ww=S(6), hh=S(6))
+
+    rrect(d, S(150), S(20), w - S(150), hz - S(20), near)
+    windows_big(d, S(150), S(20), w - S(150), hz - S(20), near, 0.26, 71,
+                color=C["warm_hi"], step=S(12), ww=S(6), hh=S(6))
+    # 楼顶一根天线，右栋立刻高出一截
+    rrect(d, S(170), S(8), S(1), S(12), near)
+    rrect(d, S(168), S(12), S(5), S(1), near)
+
+    # 招牌：一块横粉、一块竖青。位置避开人物视线中心
+    neon_sign_h(d, S(6), S(34), S(32), S(11), C["neon_p"])
+    neon_sign_v(d, S(196), S(30), S(11), S(26), C["neon_c"])
+
+    # ---- 街面：上亮下暗，湿地上反着天光 ----
+    for y in range(hz, h):
+        t = (y - hz) / max(1, h - hz - 1)
+        d.rectangle([0, y, w - 1, y],
+                    fill=mix(mix(C["road"], sky_hz, 0.34), C["road"], t ** 0.8))
+    rrect(d, 0, hz, w, S(2), mix(C["road"], sky_hz, 0.55))        # 路缘反光
+    d.rectangle([0, hz + S(14), w - 1, hz + S(14)], fill=mix(C["road"], C["void"], 0.45))
+
+    # 倒影：招牌和天光在湿地上拉出的竖条
+    wet_reflection(d, S(10), hz + S(2), S(30), C["neon_p"], 0.42, S(7))
+    wet_reflection(d, S(198), hz + S(2), S(30), C["neon_c"], 0.34, S(6))
+    wet_reflection(d, S(84), hz + S(2), S(22), mix(C["white"], sky_hz, 0.4), 0.22, S(4))
+
+    # ---- 唯一落点：拎着包往回走的人 ----
+    fx, fy = S(84), hz + S(4)
+    rrect(d, fx + S(2), fy, S(7), S(7), C["void"])             # 头
+    rrect(d, fx + S(3), fy + S(1), S(5), S(2), (0x1A, 0x12, 0x1A))   # 帽檐
+    rrect(d, fx, fy + S(7), S(11), S(11), C["void"])           # 上身
+    rrect(d, fx + S(1), fy + S(18), S(3), S(8), C["void"])     # 左腿
+    rrect(d, fx + S(7), fy + S(18), S(3), S(8), C["void"])     # 右腿
+    rrect(d, fx + S(11), fy + S(9), S(6), S(7), mix(C["void"], C["brick"], 0.5))  # 包
+
+    # 前景电线：把观众放到"街上抬头"的位置
+    d.line([(0, S(3)), (S(120), S(9))], fill=C["void"], width=S(1))
+    d.line([(S(120), S(9)), (w - 1, S(4))], fill=C["void"], width=S(1))
+
+
+def scene_intro_room(d, w, h, S):
+    """封面：出租屋，一只行李箱、一扇亮着别人家灯的窗、一盏吊着的灯泡。
+
+    封面比横幅高 36px，多出来的高度全给窗 —— 窗外那片城市是这局游戏的
+    目标，窗必须是画面里最大最亮的东西，行李箱只是"刚被裁"的注脚。
+    """
+    rrect(d, 0, 0, w, h, (0x1A, 0x21, 0x30))
+    # 墙面：只在左半留一点竖向脏污，避免整面纯色
+    for i in range(0, S(96), S(7)):
+        rrect(d, i, 0, S(1), S(92), (0x1C, 0x24, 0x33))
+    fy = S(92)
+    rrect(d, 0, fy, w, h - fy, C["ground"])
+    rrect(d, 0, fy, w, S(2), mix(C["ground"], C["concrete3"], 0.4))
+
+    # 窗：右侧大窗，占约四成半宽，是画面唯一光源
+    wx, wy, ww, wh = S(104), S(14), S(108), S(72)
+    rrect(d, wx, wy, ww, wh, C["void"])
+    for bx, bh, lit in ((S(110), S(46), 4), (S(150), S(58), 3), (S(190), S(38), 2)):
+        bw = S(28)
+        by = wy + wh - bh
+        rrect(d, bx, by, bw, bh, (0x15, 0x1B, 0x2E))
+        windows_big(d, bx, by, bw, bh, (0x15, 0x1B, 0x2E), 0.55, bx + bh,
+                    step=S(10), ww=S(5), hh=S(6))
+        if lit:
+            rrect(d, bx, by, bw, S(1), (0x22, 0x2A, 0x40))
+    # 月亮与远处塔吊：北京的天际线记号
+    d.ellipse([S(186), wy + S(6), S(196), wy + S(16)], fill=C["warm_hi"])
+    d.line([(S(120), wy + S(8)), (S(120), wy + S(30))], fill=(0x3A, 0x2A, 0x38), width=S(1))
+    d.line([(S(112), wy + S(9)), (S(140), wy + S(9))], fill=(0x3A, 0x2A, 0x38), width=S(1))
+    # 窗棂
+    rrect(d, wx, wy + wh // 2 - S(1), ww, S(3), (0x2C, 0x36, 0x46))
+    rrect(d, wx + ww // 2 - S(1), wy, S(3), wh, (0x2C, 0x36, 0x46))
+    e = S(4)
+    rrect(d, wx - e, wy - e, ww + 2 * e, e, (0x3F, 0x4E, 0x60))
+    rrect(d, wx - e, wy + wh, ww + 2 * e, e, (0x3F, 0x4E, 0x60))
+    rrect(d, wx - e, wy - e, e, wh + 2 * e, (0x3F, 0x4E, 0x60))
+    rrect(d, wx + ww, wy - e, e, wh + 2 * e, (0x3F, 0x4E, 0x60))
+    rrect(d, wx - S(6), wy - S(6), ww + S(12), S(5), (0x3F, 0x4E, 0x60))   # 窗台板
+
+    # 吊灯泡：第二光源，把"屋里"和"窗外"分开
+    rrect(d, S(58), 0, S(1), S(26), C["concrete2"])
+    glow(d, S(58), S(32), S(13), C["warm"], (0x1A, 0x21, 0x30), 0.35)
+    rrect(d, S(55), S(26), S(7), S(9), C["warm_hi"])
+    rrect(d, S(56), S(28), S(5), S(6), mix(C["warm_hi"], C["white"], 0.5))
+
+    # 行李箱：左侧主体，明确轮廓 + 提手 + 两条横带 + 轮
+    lx, ly, lw, lh = S(16), S(56), S(64), S(38)
+    outline_rect(d, lx, ly, lw, lh, (0x7A, 0x46, 0x40), (0x2A, 0x16, 0x18), S(2))
+    for by in (ly + S(12), ly + S(26)):
+        rrect(d, lx + S(2), by, lw - S(4), S(4), (0x9B, 0x5E, 0x52))
+    rrect(d, lx + lw // 2 - S(7), ly - S(5), S(14), S(4), (0x2A, 0x16, 0x18))   # 提手
+    rrect(d, lx + lw // 2 - S(5), ly - S(4), S(10), S(2), (0x7A, 0x46, 0x40))
+    for wxr in (lx + S(8), lx + lw - S(14)):
+        d.ellipse([wxr, ly + lh, wxr + S(7), ly + lh + S(7)], fill=(0x14, 0x18, 0x1F))
+
+    # 窗光落在地板上：一片柔和的冷光。
+    # 之前这里是一个空的深色地板 —— 140px 的图有 48px 是黑的，玩家看到的是
+    # "没画完"。用按距离衰减的横向渐变而不是一块梯形色块：梯形边缘是硬的，
+    # 看着像地毯；衰减才像从窗里漏下来的光。
+    for yy in range(fy, h):
+        ty = (yy - fy) / max(1, h - fy - 1)
+        cx = S(158) - int(ty * S(26))          # 光心随地面往左下漂
+        rad = int(S(92) + ty * S(26))
+        for xx in range(max(0, cx - rad), min(w, cx + rad + 1)):
+            dx = abs(xx - cx) / rad
+            k = (1.0 - dx) ** 2 * (1.0 - ty * 0.5) * 0.26
+            if k <= 0.01:
+                continue
+            base = d.im.getpixel((xx, yy))
+            d.point((xx, yy), fill=mix(base, (0x6E, 0x9C, 0xC8), k))
+    # 行李箱在光里的影子：只往右铺一小截，箱子才不是浮在地板上
+    d.polygon([(lx + S(2), fy + S(1)), (lx + lw, fy + S(1)),
+               (lx + lw + S(4), fy + S(14)), (lx + S(10), fy + S(14))],
+              fill=mix(C["ground"], C["void"], 0.5))
+
+    # 地上：一张散落的离职证明，压在光斑里、紧挨着行李箱
+    rrect(d, S(78), S(114), S(24), S(10), (0xC8, 0xC6, 0xBA))
+    rrect(d, S(78), S(114), S(24), S(1), (0xE4, 0xE2, 0xD6))
+    rrect(d, S(82), S(117), S(15), S(1), (0x8A, 0x88, 0x80))
+    rrect(d, S(82), S(120), S(11), S(1), (0x8A, 0x88, 0x80))
 
 
 def scene_market_stall(d, w, h, S):
@@ -502,7 +659,7 @@ def scene_ending_dawn(d, w, h, S):
 
 
 SCENES = {
-    "intro_room": (scene_intro_room, BANNER_W, BANNER_H),
+    "intro_room": (scene_intro_room, COVER_W, COVER_H),
     "home_street": (scene_home_street, BANNER_W, BANNER_H),
     "market_stall": (scene_market_stall, BANNER_W, BANNER_H),
     "delivery_road": (scene_delivery_road, BANNER_W, BANNER_H),
@@ -650,6 +807,63 @@ def rgb565a8_bytes(img):
     return plane + alpha
 
 
+def grade_565(img, gain=1.22, contrast=1.10):
+    """把插画降到 RGB565 能表现的样子。
+
+    两个必须做的动作：
+
+    1. 提亮 + 提对比。插画师/AI 出的图按显示器亮度调，直接塞进 5-6-5 会有
+       一半信息落在暗部 3 个灰阶里 —— 小屏上就是一片黑。
+    2. 4x4 有序抖动。RGB565 的蓝绿只各有 31/63 级，夜空渐变必然出色带；
+       抖动把色带的硬边打散成肉眼看不出的颗粒。幅度取半级量化，
+       再大就成了噪点（这正是旧版「满屏黄点」的成因）。
+
+    返回的图已经量化到 565 电平，rgb565_bytes 再取整就是无损的。
+    """
+    a = np.asarray(img.convert("RGB")).astype(np.float32) / 255.0
+    a = (a - 0.5) * contrast + 0.5
+    a = np.clip(a * gain, 0.0, 1.0)
+    bayer = np.array([[0, 8, 2, 10], [12, 4, 14, 6],
+                      [3, 11, 1, 9], [15, 7, 13, 5]], dtype=np.float32) / 16.0 - 0.5
+    h, w, _ = a.shape
+    tile = np.tile(bayer, (h // 4 + 1, w // 4 + 1))[:h, :w][..., None]
+    a = np.clip(a + tile * np.array([1 / 31, 1 / 63, 1 / 31], dtype=np.float32), 0.0, 1.0)
+    r = np.round(a[:, :, 0] * 31) / 31 * 255
+    g = np.round(a[:, :, 1] * 63) / 63 * 255
+    bl = np.round(a[:, :, 2] * 31) / 31 * 255
+    return Image.fromarray(np.stack([r, g, bl], axis=2).astype(np.uint8))
+
+
+def load_src(name, w, h, top_pct=0.18):
+    """读同名插画源图并降采样到 (w, h)。没有源图返回 None。
+
+    top_pct 是裁切框顶边占源图高度的比例。240x104 只有 2.31:1，比 3:2 的源图
+    窄得多，必须裁掉上下一条；默认从 18% 处开始，让地平线和主体都留在框内。
+    个别场景（俯视的、主体偏下的）在 FOCUS 里单独调。
+    """
+    p = SRC / f"{name}.png"
+    if not p.exists():
+        return None
+    src = Image.open(p).convert("RGB")
+    sw, sh = src.size
+    ch = min(sh, int(round(sw * h / w)))
+    top = max(0, min(sh - ch, int(round(top_pct * sh))))
+    crop = src.crop((0, top, sw, top + ch))
+    return grade_565(crop.resize((w, h), Image.LANCZOS))
+
+
+# 每张图的裁切起点。数字是源图高度的比例，不是像素。
+FOCUS = {
+    "home_street": 0.16,
+    "gig_warehouse": 0.20,
+    "live_room": 0.22,
+    "ride_car": 0.18,
+    # 0.0 = 从源图最顶端裁，底部那条（含生图水印）整条被切掉。
+    # 240x140 只需要源图 87% 的高度，正好够把水印留在框外。
+    "intro_room": 0.0,
+}
+
+
 def emit_scene(name, img):
     w, h = img.size
     raw = rgb565_bytes(img)
@@ -773,10 +987,12 @@ def main():
 
     if not args.check:
         for name, (fn, w, h) in SCENES.items():
-            img = Image.new("RGB", (w, h), C["sky0"])
-            d = ImageDraw.Draw(img)
-            # S() 让 240 宽的设计能在任意目标尺寸上等比缩放，便于以后出海报图
-            fn(d, w, h, lambda v, sw=w: max(1, int(round(v * sw / BANNER_W))))
+            img = load_src(name, w, h, FOCUS.get(name, 0.18))
+            if img is None:
+                img = Image.new("RGB", (w, h), C["sky0"])
+                d = ImageDraw.Draw(img)
+                # S() 让 240 宽的设计能在任意目标尺寸上等比缩放，便于以后出海报图
+                fn(d, w, h, lambda v, sw=w: max(1, int(round(v * sw / BANNER_W))))
             manifest[name] = emit_scene(name, img)
             total += manifest[name]["bytes"]
         for name in ICON_COLORS:
