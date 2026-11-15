@@ -1,0 +1,51 @@
+{
+  "generator": "lv_font_conv",
+  "generator_version": "1.5.3",
+  "source_font": {
+    "name": "Source Han Sans SC (Normal)",
+    "path": "managed_components/lvgl__lvgl/scripts/built_in_font/SourceHanSansSC-Normal.otf",
+    "license": "SIL Open Font License 1.1"
+  },
+  "charset": {
+    "file": "../data/charset.txt",
+    "chars": 1666,
+    "sha256": "1dcefc64ea5484726196d53f73fb3eb653ba5d33787bce93da7674bf9ab75daf"
+  },
+  "bpp": 4,
+  "format": "lvgl",
+  "files": [
+    {
+      "size": 12,
+      "bpp": 4,
+      "file": "xm_font_12.c",
+      "bytes": 837778,
+      "sha256": "47b31ab6fd8017431e1aaa203459ff3aae30bbcc139608c3ab6d2e474090aafa",
+      "cmd": "node lv_font_conv --size 12 --bpp 4 --font SourceHanSansSC-Normal.otf --symbols <charset.txt> --format lvgl -o assets/fonts/xm_font_12.c"
+    },
+    {
+      "size": 16,
+      "bpp": 4,
+      "file": "xm_font_16.c",
+      "bytes": 1158111,
+      "sha256": "8bc4caf5958734db61f17058ad0e727f619ade02bff8efc1b40e026602c535f4",
+      "cmd": "node lv_font_conv --size 16 --bpp 4 --font SourceHanSansSC-Normal.otf --symbols <charset.txt> --format lvgl -o assets/fonts/xm_font_16.c"
+    },
+    {
+      "size": 20,
+      "bpp": 4,
+      "file": "xm_font_20.c",
+      "bytes": 1541443,
+      "sha256": "59f9d70f6b3763a778f9276488a87c5b491fb48fe9de241e56ce8c42caf58ec2",
+      "cmd": "node lv_font_conv --size 20 --bpp 4 --font SourceHanSansSC-Normal.otf --symbols <charset.txt> --format lvgl -o assets/fonts/xm_font_20.c"
+    },
+    {
+      "size": 24,
+      "bpp": 4,
+      "file": "xm_font_24.c",
+      "bytes": 1914258,
+      "sha256": "54a601543edb6d821b0a0c05f4d3532e5b887b686d2fbe139ea0597c83cf7cf3",
+      "cmd": "node lv_font_conv --size 24 --bpp 4 --font SourceHanSansSC-Normal.otf --symbols <charset.txt> --format lvgl -o assets/fonts/xm_font_24.c"
+    }
+  ],
+  "regenerate": "bash tools/xm/gen_fonts.sh   # 需先 tools/xm/gen_charset.py 生成 charset.txt"
+}

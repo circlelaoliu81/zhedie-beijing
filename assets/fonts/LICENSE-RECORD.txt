@@ -1,0 +1,28 @@
+玄门字体子集 · 许可记录
+========================================================================
+
+一、生成工具
+  lv_font_conv 版本 1.5.3（MIT License）
+  https://github.com/lvgl/lv_font_conv
+
+二、基础字体（Source Font）
+  名称 : Source Han Sans SC (Normal)
+  来源 : managed_components/lvgl__lvgl/scripts/built_in_font/SourceHanSansSC-Normal.otf
+        （随 LVGL 组件分发，属 Adobe/Google Source Han Sans 项目）
+  许可 : SIL Open Font License 1.1 (OFL-1.1)
+        允许自由使用、修改、再分发与嵌入，前提是保留本许可与版权声明；
+        字体本身不得单独售卖；衍生字体须同样以 OFL-1.1 发布。
+
+三、衍生子集（本项目产物）
+  assets/fonts/xm_font_12.c
+  assets/fonts/xm_font_16.c
+  assets/fonts/xm_font_20.c
+  assets/fonts/xm_font_24.c
+  以上为按 assets/data/charset.txt 裁剪的 Source Han Sans SC 子集，
+  同样受 OFL-1.1 约束，随固件以 OFL-1.1 分发；不含 Reserved Font Name 冲突。
+
+四、说明
+  子集仅包含 assets/data/charset.txt 所列字符（1666 个），
+  生成参数：--size {12,16,20,24} --bpp 4 --format lvgl。
+  如需复现：先 python3 tools/xm/gen_charset.py，再 bash tools/xm/gen_fonts.sh。
+========================================================================

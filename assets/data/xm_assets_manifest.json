@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "app_version": "1.0.0",
+  "data_epoch": "2026-01-01",
+  "toolchain": {
+    "esp-idf": "v5.5.3",
+    "lvgl": "9.5.0",
+    "lv_font_conv": "1.5.3",
+    "python": "3.13"
+  },
+  "charset": {
+    "file": "charset.txt",
+    "chars": 1626,
+    "sha256": "5fb1f26f94275e35055ed36042869d580d3ad233b665376e7f4b6e31ff65f2ce"
+  },
+  "data": {
+    "huangli": {
+      "file": "../../main/generated/xm_huangli_data.c",
+      "bytes": 666388,
+      "sha256": "0b1dd2a472f5eb3df8f01b74c4360f3c9c8864ca8c3fe439ca85cbcede347a5a"
+    },
+    "yijing": {
+      "file": "../../main/generated/xm_yijing_data.c",
+      "bytes": 141655,
+      "sha256": "33c1cd6214f7f8cb31b8f744f17b95920dd29974e2cf3cc1a0004d9177ad99a5"
+    }
+  },
+  "regenerate": "python3 tools/xm/gen_huangli.py && python3 tools/xm/gen_yijing.py && python3 tools/xm/gen_build_id.py && bash tools/xm/gen_fonts.sh"
+}

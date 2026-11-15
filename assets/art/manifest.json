@@ -1,0 +1,35 @@
+{
+  "source": "tianshi_master.png",
+  "images": {
+    "tianshi_main": {
+      "w": 200,
+      "h": 132,
+      "crop": [
+        0,
+        0,
+        904,
+        760
+      ],
+      "gamma": 1.75,
+      "pad_bottom": 4,
+      "png_sha256": "0a286cdcc1848109407e165572aa7972a5aacc88d6d7c1af858e657eaa379c5b",
+      "bin_sha256": "b43c053a1efdc3539b43aa2b46b652705948dc1c1da36c4c4322f2f4435ed478",
+      "rgb565_sha256": "b43c053a1efdc3539b43aa2b46b652705948dc1c1da36c4c4322f2f4435ed478"
+    },
+    "tianshi_home": {
+      "w": 160,
+      "h": 94,
+      "crop": [
+        90,
+        0,
+        814,
+        560
+      ],
+      "gamma": 1.75,
+      "pad_bottom": 8,
+      "png_sha256": "3888a51cba8e86efd2696591505134fa00cd8b47ba670b0381399d4ad435fe11",
+      "bin_sha256": "0bead6b23b084a024ac8fb87072bbde6d1e9342c7aeec1a0d9e87103ff0db0a3",
+      "rgb565_sha256": "0bead6b23b084a024ac8fb87072bbde6d1e9342c7aeec1a0d9e87103ff0db0a3"
+    }
+  }
+}

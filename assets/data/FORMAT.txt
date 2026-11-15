@@ -1,0 +1,83 @@
+玄门数据格式说明（FORMAT v1）
+========================================================================
+通用约定
+  · 字节序：小端（little-endian），与 ESP32-C3 一致。
+  · 字符串：UTF-8，长度由字符串池索引表间接给出，不以 NUL 以外的长度前缀。
+  · 校验：CRC32（IEEE 多项式，等价 Python zlib.crc32）。
+  · 所有数据表编译期生成为 const，置于 Flash .rodata，不占内部 SRAM。
+  · 生成器位于 tools/xm/，产物在 main/generated/；改格式须同步改
+    main/core/*.c 解析器与对应 gen_*.py，并重跑 tools/xm/gen_*.py。
+
+------------------------------------------------------------------------
+一、XMHL v1 —— 黄历查表（1096 天：2026-01-01 ~ 2028-12-31）
+   产物：main/generated/xm_huangli_data.c/.h
+   生成：tools/xm/gen_huangli.py（数据源 lunar_python，与 lunar-java 同源）
+   解析：main/core/xm_huangli.c  xm_hl_init / xm_hl_lookup
+
+   头部（32 字节）
+     [0..4)   magic "XMHL"
+     [4..6)   version   u16 = 1
+     [6..8)   day_count u16 = 1096
+     [8..12)  base_days u32 = 20454（2026-01-01 的连续日序，Hinnant）
+     [12..16) str_pool_off   u32 = 32
+     [16..20) str_pool_bytes u32
+     [20..24) rec_off        u32
+     [24..26) rec_size       u16 = 64
+     [26..28) list_pool_off  u16
+     [28..32) crc32          u32（覆盖 [32..size)）
+
+   字符串池（str_pool_off 起）
+     u16 count | u16[count] 每串相对 str_pool 的偏移 | 各串 NUL 结尾
+     index 0xFFFF 视为无效（NULL）。
+
+   列表池（list_pool_off 起）
+     u16 term_count | u16[term_count] 术语→字符串池编号
+     各日四张列表（宜/忌/吉神/凶煞）的字节流：
+       每项：code = byte。
+         code != 0xFF → code < term_count，按字典取字符串；
+         code == 0xFF → 后随 u16 字符串池编号（转义直取）。
+
+   记录区（rec_off 起，1096 × 64 字节）—— 逐字节布局（务必一致）
+     [0,2)   lunar_y  农历年（字符串池索引）
+     [2,4)   lunar_m  农历月（含“闰”前缀）
+     [4,6)   lunar_d  农历日
+     [6]     leap     闰月标志（bit0）
+     [7,9)   gz_y     年干支
+     [9,11)  gz_m     月干支
+     [11,13) gz_d     日干支
+     [13,15) yi_off   宜 列表池偏移
+     [15]    yi_cnt   宜 条目数
+     [16,18) ji_off   忌 偏移
+     [18]    ji_cnt   忌 条目数
+     [19,21) jishen_off  吉神 偏移
+     [21]    jishen_cnt
+     [22,24) xiongsha_off 凶煞 偏移
+     [24]    xiongsha_cnt
+     [25,27) tianshen 值神
+     [27]    zhixing  建除十二神索引 0..11
+     [28]    xiu_raw  bit0..4 二十八宿 0..27；bit7 宿吉凶
+     [29,31) chong    冲
+     [31]    sha      煞方 0..7
+     [32,34) pengzu_gan 彭祖百忌·干
+     [34,36) pengzu_zhi 彭祖百忌·支      ← 2 字节！
+     [36]    pos_xi   喜神方 0..7
+     [37]    pos_fu   福神方 0..7
+     [38]    pos_cai  财神方 0..7
+     [39]    nayin    纳音 0..29
+     [40,52) hour_gz  十二时辰干支索引[12]，各 0..59
+     [52,54) hour_luck 十二时辰吉凶位掩码 u16
+     [54]    hour_idx_seed（保留）
+     [55,64) 保留未用
+     注意：pengzu_zhi 占 34..35，其后各字段自 36 起 —— 切勿让 pos_xi 压到 35
+     （历史上曾因重叠导致 877 天解码越界、整日失败；gen_huangli.py 内置
+      布局不重叠断言防复发）。
+
+------------------------------------------------------------------------
+二、XMYJ v1 —— 易经 64 卦 + 384 爻辞
+   产物：main/generated/xm_yijing_data.c/.h
+   生成：tools/xm/gen_yijing.py（gua64.tsv / yaoci384.tsv）
+   magic "XMYJ"，version 1；卦/爻以 const 结构表形式给出，
+   具体字段见 main/generated/xm_yijing_data.h 与 main/core/xm_yijing.h。
+
+========================================================================
+可复现元数据见同目录 xm_assets_manifest.json；字体子集见 ../fonts/。

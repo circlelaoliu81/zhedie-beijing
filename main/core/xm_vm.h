@@ -1,0 +1,139 @@
+#pragma once
+/* 双端视图模型：固件 LVGL 与主机 PNG 预览共用同一份纯 C11 页面描述。 */
+
+#include "xm_huangli.h"
+#include "xm_types.h"
+
+#define XM_VIEW_LINE_MAX 24u
+/* 设备只有 12/16/20/24 四档中文字体子集（assets/fonts/xm_font_*.c，
+ * 四档共用同一份 charset.txt）。用户真机反馈「内容页字号太小」，
+ * 内容区正文一律用 16px；顶栏状态条、异常条、来源/页脚这类辅助信息
+ * 才允许 12px。新增上屏行必须用这两个常量，不许再写裸 12u 正文。 */
+#define XM_FONT_BODY 16u
+#define XM_FONT_AUX  12u
+/* 两栏各 112px：最坏「凶煞：阳破阴冲」= 48px 前缀 + 64px 四字词 = 112px，
+ * 108px 会超宽 4px（1096 天全量扫描实测）。左栏 x=4、右栏 x=124，
+ * 中间留 8px 间隙并在 x=120 画一条淡赭竖线，两侧各留 4px 边距。 */
+#define XM_PAGES_COL_W 112u
+/* 摇卦动画一帧要画三枚方孔铜钱（外框+孔）+ 六行状态标记，16 个不够用。
+ * 容量放大不影响栈：art 是指针，view 本体只增加 16 个 box 的常驻空间。 */
+#define XM_VIEW_BOX_MAX 32u
+#define XM_VIEW_STROKE_MAX 16u
+
+#define XM_COLOR_PAPER   0xF2EBDCu
+#define XM_COLOR_INK     0x2B2A27u
+#define XM_COLOR_SUBINK  0x6B6559u
+#define XM_COLOR_RED     0x9E3B32u
+#define XM_COLOR_BLUE    0x4A5A5Cu
+#define XM_COLOR_LINE    0xD8CFBBu
+#define XM_COLOR_DISABLE 0x9A9384u
+
+typedef enum {
+    XM_ALIGN_LEFT = 0,
+    XM_ALIGN_CENTER,
+    XM_ALIGN_RIGHT
+} xm_view_align_t;
+
+typedef struct {
+    int16_t x;
+    int16_t y;
+    uint16_t w;
+    uint8_t size;
+    uint32_t color;
+    uint8_t align;
+    const char *text;
+} xm_view_line_t;
+
+typedef struct {
+    int16_t x;
+    int16_t y;
+    uint16_t w;
+    uint16_t h;
+    uint32_t color;
+    bool fill;
+    bool border;
+    uint8_t radius;   /* 圆角半径：摇卦铜钱用「外圆内方」，0 = 直角 */
+} xm_view_box_t;
+
+typedef struct {
+    int16_t x1;
+    int16_t y1;
+    int16_t x2;
+    int16_t y2;
+    uint32_t color;
+    uint8_t width;
+} xm_view_stroke_t;
+
+typedef struct {
+    xm_view_line_t lines[24];
+    xm_view_box_t boxes[32];
+    xm_view_stroke_t strokes[16];
+    /* 天师白描底图：RGB565 常量数组，LVGL lv_image 直读 Flash。
+     * 只存指针不存像素，避免 xm_view_t 按值返回吃掉真机 8KB 任务栈
+     * （历史栈溢出根因）。像素源与 host 预览同源，由门禁逐像素校验。 */
+    const uint16_t *image;
+    int16_t image_x;
+    int16_t image_y;
+    uint16_t image_w;
+    uint16_t image_h;
+    uint8_t line_n;
+    uint8_t box_n;
+    uint8_t stroke_n;
+    uint8_t overlay;
+    bool footer;
+} xm_view_t;
+
+typedef struct {
+    xm_page_t page;
+    xm_datetime_t datetime;
+    char date_text[32];
+    char time_text[16];
+    char cast_text[32];
+    char cast_prompt[64];     /* 摇卦页动态按键提示：明确「按确定键摇第 N 爻」 */
+    uint8_t cast_phase;       /* 0=等待确定键，1=本爻摇动中 */
+    uint8_t cast_frame;       /* 0..7，输入任务 100ms tick 推进 */
+    char notice_text[32];
+    char today_line[64];
+    char hl_lines[14][128];
+    uint8_t hl_line_n;
+    /* 黄历页两栏版式的分界（由 xm_pages.c 填，VM 只消费）：
+     * [0, hl_head_n) 是全宽表头行；[hl_head_n, hl_col_split) 走左栏，
+     * [hl_col_split, hl_line_n) 走右栏。字号从 12 提到 16 后一屏放不下 14 行，
+     * 两栏把 14 个文本行压成 7~10 个视觉行，信息一条不丢、键位一个不改。 */
+    uint8_t hl_head_n;
+    uint8_t hl_col_split;
+    bool hl_valid;
+    xm_hl_day_t hl;
+    xm_liuyao_t ly;
+    uint8_t cast_toss[6];
+    char result_lines[8][160];
+    uint8_t result_line_n;
+    xm_hist_rec_t history[8];
+    char history_text[8][80];
+    uint8_t history_count;
+    bool history_empty;
+    char about_lines[10][160];
+    uint8_t about_line_n;
+    char version[32];
+    char build_id[96];
+    uint8_t err_flags;
+    uint8_t sel;
+    uint8_t sub;
+    uint8_t cast_count;
+    uint8_t hour_index;
+    /* 授时页当前编辑字段（0=年 1=月 2=日 3=时 4=分），由 xm_nav_t.time_cursor 透传。
+     * 早先状态机里改 cursor、VM 却从不读，用户双击确定键切字段屏上毫无变化。 */
+    uint8_t time_cursor;
+    /* 授时页 5 个字段的文本（"2026"/"11"/"13"/"10"/"30"），供分段绘制用。
+     * 必须各自成块：xm_view_t 只存 const char*，直接指向 date_text 中间会导致截断。 */
+    char time_field_text[5][8];
+    char time_progress[32];   /* 授时页「第 N / 5 段」进度，键位与推进都看得见 */
+    bool notice;
+    bool review_mode;
+    bool settings_confirm_clear;
+    int battery_soc;
+} xm_page_state_t;
+
+void xm_vm_state_init(xm_page_state_t *state);
+xm_view_t xm_vm_render(xm_page_t page, const xm_page_state_t *state);
+const char *xm_vm_overlay_text(uint8_t flags);
