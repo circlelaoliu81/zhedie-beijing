@@ -1,7 +1,7 @@
 Fully offline, no Wi-Fi setup needed. Turn it on and play.
 
 1. On the cover, use Up/Down to pick starting cash and press OK. After your first run the top item becomes "Continue", which resumes your saved day; picking a new start overwrites the old run.
-2. On the main panel, move to "Go to work" and press OK to choose a trade. Stalls and day labor need no capital; delivery, ride-hailing and livestreaming need equipment first — if cash is short you are taken to the loan page.
+2. On the main panel, move to "Go to work" and press OK to choose a trade. Stalls and day labor need no capital; delivery, ride-hailing and livestreaming need equipment first, and short cash sends you to the loan page. Ride-hailing is a rented car: the trade page shows how many days of lease are left, rent falls due when it runs out, and a missed payment gets the car taken back.
 3. Press OK on a trade page to work a shift. It returns you to the main panel and you can take a second job the same day. The 24-hour bar at the bottom shows the hours already spent — the further right it goes, the riskier.
 4. Once you have earned enough, pick "Clock off" to settle the day, or "Take a day off" to sleep straight into tomorrow. When sleep is short the bottom line warns of dozing off and cut income.
 5. Long-press OK to go back one level. After 60 idle seconds the screen turns off to save power; any key lights it again, and that first press does not trigger an action. Powering off never loses progress.

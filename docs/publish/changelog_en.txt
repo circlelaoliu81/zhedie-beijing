@@ -1,1 +1,5 @@
-New: the screen turns off after 60 seconds without input, so a unit left on the table no longer stays lit all night. Only the backlight goes off — the picture stays on screen, any key lights it instantly, and that first press never triggers an action.
+Two problems that used to trap players are fixed.
+
+On the random-event page, Up/Down did nothing: the highlight never moved and OK always ran the first option, so a "run or pay the fine" choice was really just "pay the fine". Selection works now, and the third option that was never drawn on screen appears as well.
+
+Ride-hailing no longer disappears without explanation: the trade page shows how many days of lease are left, states the rent due before it expires, and if the car is repossessed both the evening report and the next morning's main panel say why and note that the deposit is gone. Monthly rent is now settled before apartment rent, so rent can no longer squeeze out a lease you could actually afford.
