@@ -54,7 +54,8 @@ typedef struct {
     uint8_t stack[FB_STACK_MAX];
     uint8_t depth;
     const fb_event_t *ev;     /* 当前事件（指针指向只读表） */
-    uint8_t ev_choice;
+    /* 事件页的选项光标就是 sel —— 曾经另开一个 ev_choice 字段，
+     * 上下键改 sel、渲染和 OK 读 ev_choice，光标永远停在第一项。 */
     char toast[FB_LOG_SIZE];  /* 最近一次操作结果 */
     bool dirty;
     bool ended_shown;

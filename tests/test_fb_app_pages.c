@@ -153,6 +153,50 @@ static void test_locked_lines_selectable(void) {
     printf("  locked line OK (toast=%s)\n", a.toast);
 }
 
+/* 回归：事件页的选项光标必须真的能动，第三条也必须能选到。
+ * 曾经事件页另开一个 ev_choice 当光标：上下键改的是 sel，渲染高亮和
+ * OK 执行读的是 ev_choice —— 屏上光标纹丝不动，按 OK 永远走第一项，
+ * 玩家遇到「逃跑还是交罚款」只能认罚。卡片还写死只画 2 张，
+ * 「城管来了」的第三条（托熟人 -150）在屏上从未出现过。 */
+static void test_event_choices(void) {
+    fb_app_t a;
+    fb_app_init(&a, 998877u);
+
+    size_t n = 0;
+    const fb_event_t *evs = fb_event_table(&n);
+    const fb_event_t *three = NULL;
+    for (size_t i = 0; i < n; ++i) {
+        if (evs[i].choice_n >= 3u) { three = &evs[i]; break; }
+    }
+    assert(three != NULL);          /* 数据表里必须有那条三选项事件 */
+
+    a.ev = three;
+    a.scr = FB_SCR_EVENT;
+    a.sel = 0;
+    assert(a.st.stamina > 40);
+
+    const int32_t cash0 = a.st.cash;
+    const int16_t stam0 = a.st.stamina;
+
+    press(&a, XM_IN_DOWN_CLICK);
+    assert(a.sel == 1);
+    snap("event_c2", &a);           /* 高亮必须跟着走 */
+    press(&a, XM_IN_DOWN_CLICK);
+    assert(a.sel == 2);
+    snap("event_c3", &a);
+    press(&a, XM_IN_DOWN_CLICK);    /* 到底不越界 */
+    assert(a.sel == 2);
+    press(&a, XM_IN_UP_CLICK);
+    assert(a.sel == 1);
+
+    /* 第二项是「收摊跑路，-20 精力」：现金不动、精力掉 20 */
+    press(&a, XM_IN_OK_CLICK);
+    assert(a.scr != FB_SCR_EVENT);
+    assert(a.st.cash == cash0);
+    assert(a.st.stamina == stam0 - 20);
+    printf("  event choices OK\n");
+}
+
 int main(void) {
     printf("test_fb_app_pages\n");
     fb_app_t app;
@@ -307,6 +351,9 @@ int main(void) {
 
     /* 没装备的行当照样可选，买不起就被送到借钱页 */
     test_locked_lines_selectable();
+
+    /* 事件页上下键必须能换到第二、第三项 */
+    test_event_choices();
 
     if (s_fail) {
         printf("test_fb_app_pages: FAIL (%d)\n", s_fail);

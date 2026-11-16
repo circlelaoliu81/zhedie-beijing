@@ -155,6 +155,22 @@ int main(void) {
     }
     dump_view("11_next_home", &g_app);
 
+    /* 三选项事件（城管来了）单出一张：第三条「托熟人」曾经在屏上
+     * 根本不存在，这张图就是那个 bug 的回归依据。 */
+    {
+        size_t en = 0;
+        const fb_event_t *evs = fb_event_table(&en);
+        for (size_t i = 0; i < en; ++i) {
+            if (evs[i].choice_n < 3u) continue;
+            g_app.ev = &evs[i];
+            g_app.scr = FB_SCR_EVENT;
+            g_app.sel = 1;
+            dump_view("10b_event3", &g_app);
+            break;
+        }
+        g_app.ev = NULL;
+    }
+
     /* 熬夜到快垮的样子：工时 22 小时、欠觉 5 天、白天撑不住。
      * 这张是给"睡眠剥夺"这套机制看的门面图。 */
     fb_app_init(&g_app, 20261115u);

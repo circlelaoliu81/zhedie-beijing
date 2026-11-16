@@ -25,7 +25,7 @@ TITLES = {
     "04_market": "摆摊选点", "05_market_ready": "备好货",
     "06_home_after_work": "干完一份回主面板", "07_gig": "日结零工",
     "08_home_multi": "同一天第二份工", "09_report": "收工结算",
-    "10_event": "随机事件", "11_next_home": "次日",
+    "10_event": "随机事件", "10b_event3": "事件·三项选择", "11_next_home": "次日",
     "12_home_exhausted": "熬夜到快垮", "13_about": "玩法说明",
     "14_ending": "结局",
     "15_finance": "财务存取", "16_live": "直播连播",

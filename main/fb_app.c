@@ -890,8 +890,18 @@ static void render_event(fb_app_t *app, xm_view_t *v) {
     draw_scene(v, FB_SC_EVENT);
 
     draw_para(app, v, 8, 140, e->text, FB_BODY_W, 22, 16, XM_COLOR_INK, 3);
-    for (uint8_t i = 0; i < e->choice_n && i < 2; ++i) {
-        draw_card(app, v, 6, 214 + i * 38, 228, 34, app->ev_choice == i, true,
+
+    /* 选项按 choice_n 全画出来，不再固定 2 张。
+     * 「城管来了」本来就是三条（认罚 / 收摊跑路 / 托熟人），第三条原先
+     * 在屏上根本不存在，玩家不知道还有别的活路。项数越多卡片越矮：
+     * 三张 26px 刚好塞进正文(到 206)与底部提示(296)之间。 */
+    const uint8_t n = e->choice_n ? e->choice_n : 1;
+    const int top = 210, bottom = 294;
+    const int gap = (n >= 3) ? 3 : 6;
+    int h = (bottom - top - gap * (n - 1)) / (int)n;
+    if (h > 34) h = 34;
+    for (uint8_t i = 0; i < n; ++i) {
+        draw_card(app, v, 6, top + i * (h + gap), 228, h, app->sel == i, true,
                   FB_ICO_NONE, e->choices[i].label);
     }
     draw_hint(app, v, "↑↓ 选    OK 确定");
@@ -1320,7 +1330,6 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
             const fb_event_t *e = fb_roll_event(&app->st);
             if (e) {
                 app->ev = e;
-                app->ev_choice = 0;
                 app->scr = FB_SCR_EVENT;
                 app->sel = 0;
             } else {
@@ -1333,7 +1342,7 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
             if (app->ev) {
                 char msg[FB_LOG_SIZE];
                 msg[0] = '\0';
-                fb_apply_choice(&app->st, app->ev, app->ev_choice, msg,
+                fb_apply_choice(&app->st, app->ev, app->sel, msg,
                                 sizeof(msg));
                 if (msg[0]) {
                     snprintf(app->toast, sizeof(app->toast), "%s", msg);
