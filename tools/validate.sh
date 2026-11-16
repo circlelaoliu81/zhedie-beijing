@@ -74,6 +74,15 @@ else
   cat /tmp/t3.log; bad "存档测试编译失败"
 fi
 
+# 空闲息屏：60 秒无操作关背光 + 第一下按键只唤醒。这一项挂了等于玩家盲按
+# 一下就被送进动作页，或者屏幕永远不熄。
+if gcc -std=c11 -Wall -Wextra -Werror -I main -o /tmp/t_idle tests/test_fb_idle.c \
+      main/fb_idle.c 2>/tmp/t4.log; then
+  if /tmp/t_idle >/tmp/t4.out 2>&1; then tail -1 /tmp/t4.out; ok "空闲息屏与唤醒"; else cat /tmp/t4.out; bad "空闲息屏与唤醒"; fi
+else
+  cat /tmp/t4.log; bad "息屏测试编译失败"
+fi
+
 step "5/5 固件构建"
 if [ "$DO_BUILD" = "1" ]; then
   # shellcheck disable=SC1091

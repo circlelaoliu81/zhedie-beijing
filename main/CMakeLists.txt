@@ -9,6 +9,7 @@ idf_component_register(
          "fb_game.c"
          "fb_save.c"
          "app_persist.c"
+         "fb_idle.c"
          "xm_input_task.c"
          "xm_ui.c"
          "xm_widgets.c"
