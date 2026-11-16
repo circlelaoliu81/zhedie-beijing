@@ -626,18 +626,42 @@ static void render_lines(fb_app_t *app, xm_view_t *v) {
         const int h = sel ? 42 : 26;
         const uint32_t accent = line_color(i);
 
-        /* 右侧数据点：解锁了看这活要几小时，没解锁看要掏多少钱 */
-        const char *right = unlocked ? pool_put(app, "%uh", (unsigned)fb_line_hours(i))
-                                     : pool_put(app, "¥%d", (int)meta[i].startup);
+        /* 右侧数据点：解锁了看这活要几小时，没解锁看要掏多少钱。
+         * 网约车两处都要特殊对待：
+         *   没解锁时那 8000 是押金不是车价，写「押」；
+         *   解锁后它不是一劳永逸的资产 —— 月租到期交不出就来收车，
+         *   所以右侧换成剩余天数，让倒计时一直在玩家眼前。 */
+        const int16_t ride_left = (i == FB_LINE_RIDE) ? fb_ride_days_left(&app->st) : 0;
+        const char *right;
+        uint32_t right_color = FB_COLOR_WARN;
+        if (!unlocked) {
+            right = (i == FB_LINE_RIDE) ? pool_put(app, "押%d", (int)meta[i].startup)
+                                        : pool_put(app, "¥%d", (int)meta[i].startup);
+        } else if (i == FB_LINE_RIDE) {
+            right = ride_left > 0 ? pool_put(app, "剩%d天", (int)ride_left) : "到期";
+            right_color = ride_left <= 3 ? FB_COLOR_WARN : XM_COLOR_SUBINK;
+        } else {
+            right = pool_put(app, "%uh", (unsigned)fb_line_hours(i));
+            right_color = XM_COLOR_SUBINK;
+        }
 
         draw_card_ex(app, v, 6, y, 228, h, sel, true, line_icon(i), accent,
-                     pool_raw(app, meta[i].name), right,
-                     unlocked ? XM_COLOR_SUBINK : FB_COLOR_WARN);
+                     pool_raw(app, meta[i].name), right, right_color);
 
         if (sel) {
             if (unlocked) {
-                v_line(v, 33, y + 21, 195, 12, XM_COLOR_SUBINK, XM_ALIGN_LEFT,
-                       pool_raw(app, meta[i].desc));
+                /* 车已经租下来的人不需要再读「押金高常要借钱」，
+                 * 他需要知道还剩几天、到期要交多少。 */
+                const bool ride_urgent = i == FB_LINE_RIDE && ride_left <= 3;
+                const char *d = meta[i].desc;
+                if (i == FB_LINE_RIDE) {
+                    d = ride_urgent
+                            ? pool_put(app, "还剩 %d 天，交不出车就被收走", (int)ride_left)
+                            : pool_put(app, "还剩 %d 天，到期交 2800", (int)ride_left);
+                }
+                v_line(v, 33, y + 21, 195, 12,
+                       ride_urgent ? FB_COLOR_WARN : XM_COLOR_SUBINK, XM_ALIGN_LEFT,
+                       d);
             } else {
                 const int32_t gap = meta[i].startup - app->st.cash;
                 v_line(v, 33, y + 21, 195, 12,
@@ -877,9 +901,12 @@ static void render_report(fb_app_t *app, xm_view_t *v) {
     draw_para(app, v, 8, 222, fb_quote_daily(st->day, 1, net), FB_SMALL_W, 15, 12,
               qk == FB_QUOTE_SANG ? XM_COLOR_SUBINK : FB_COLOR_ACCENT, 2);
 
-    /* 明细（吃饭/交通/房租/过劳……）只给一行。总数已经在上面 +248/-46 里了，
-     * 这里的作用是让玩家看到钱花在哪，不需要全列。 */
-    draw_para(app, v, 8, 258, app->toast, FB_SMALL_W, 15, 12, XM_COLOR_INK, 1);
+    /* 明细（吃饭/交通/房租/车租/健康……）给两行。一行 17 个字宽装不下
+     * 一天十来段流水，原来车租和健康全被切在屏外 —— 玩家只能看到钱少了，
+     * 看不到为什么少。两行刚好落在语录(到 252)与底部提示线(296)之间。
+     * 丢车那天整段标红：那是这一局最贵的一次意外。 */
+    draw_para(app, v, 8, 258, app->toast, FB_SMALL_W, 15, 12,
+              app->car_lost ? XM_COLOR_RED : XM_COLOR_INK, 2);
     draw_hint(app, v, "OK 继续");
 }
 
@@ -1079,7 +1106,12 @@ static void back_to_home_after_work(fb_app_t *app) {
 
 /* 结算 → 抽事件 → 推进/结束。所有“今天到此为止”的入口共用。 */
 static void finish_day(fb_app_t *app) {
+    const bool had_car = app->st.has_car != 0;
     fb_end_day(&app->st, app->toast, sizeof(app->toast));
+    /* 收工页的两行明细未必容得下「车被收走」，次日首页再顶一条：
+     * 玩家回到主面板时，网约车行当已经变成「缺 ¥8000」，不问一句
+     * 就真成了凭空消失。 */
+    if (had_car && !app->st.has_car) app->car_lost = true;
     app->scr = FB_SCR_REPORT;
     app->sel = 0;
 }
@@ -1094,7 +1126,12 @@ static void advance_after_event(fb_app_t *app) {
     } else {
         /* 新的一天开头不保留昨天那一单的流水，但欠觉这件事必须继续顶在眼前 */
         app->toast[0] = '\0';
-        if (app->st.sleep_debt >= 4) {
+        if (app->car_lost) {
+            /* 丢车是这一局最贵的一次意外（押金 8000 + 本月租金），
+             * 优先于欠觉和晕倒，回首页第一眼就得知道。 */
+            snprintf(app->toast, sizeof(app->toast), "车被收走了，押金不退");
+            app->car_lost = false;
+        } else if (app->st.sleep_debt >= 4) {
             snprintf(app->toast, sizeof(app->toast), "欠觉 %u 天，人快垮了",
                      (unsigned)app->st.sleep_debt);
         } else if (app->st.recovering) {

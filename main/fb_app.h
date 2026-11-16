@@ -57,6 +57,9 @@ typedef struct {
     /* 事件页的选项光标就是 sel —— 曾经另开一个 ev_choice 字段，
      * 上下键改 sel、渲染和 OK 读 ev_choice，光标永远停在第一项。 */
     char toast[FB_LOG_SIZE];  /* 最近一次操作结果 */
+    /* 昨天结算把车收走了。放在 app 层不进存档：fb_state_t 一改长度
+     * 老存档就整档作废，代价太大。仅用于次日首页顶一条提示。 */
+    bool car_lost;
     bool dirty;
     bool ended_shown;
     /* 存档接线：save_dirty 由状态机在「进入新一天 / 局结束」时置位，

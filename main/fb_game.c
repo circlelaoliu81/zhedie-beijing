@@ -628,6 +628,15 @@ bool fb_rent_car(fb_state_t *st) {
     return true;
 }
 
+/* 车还能开几天（含今天）。没车返回 0。
+ * 行当页拿它当右侧数据点：原先只有「8h」一个工时数，租期完全不可见，
+ * 玩家是在车被收走的第二天才知道还有「月租」这回事。 */
+int16_t fb_ride_days_left(const fb_state_t *st) {
+    if (!st || !st->has_car) return 0;
+    const int16_t d = (int16_t)(st->rent_paid_until - st->day);
+    return d > 0 ? d : 0;
+}
+
 bool fb_buy_live_gear(fb_state_t *st) {
     if (st->has_live) return false;
     if (st->cash < FB_LIVE_GEAR) return false;
@@ -792,39 +801,54 @@ int32_t fb_run_live(fb_state_t *st, uint8_t topic, char *log, size_t logsz) {
 void fb_end_day(fb_state_t *st, char *log, size_t logsz) {
     if (!log) return;
     log[0] = '\0';
+    /* 收工页明细只有两行（12px 一行 17 个字宽），而一天能攒出十来段流水：
+     * 原先全按发生顺序拼一个串，第 17 个字之后的条目从没上过屏 ——
+     * 「车被收走」正好排在吃饭/交通/房租后面，玩家第二天发现网约车
+     * 变灰、押金没了，屏幕上却一句解释都没有。这里把重大事件单收一路，
+     * 最后拼到最前面。 */
+    char head[64];
+    char body[FB_LOG_SIZE];
+    head[0] = '\0';
+    body[0] = '\0';
+
     /* 晕倒次日的「只剩半天」到这一刻就耗完了，标记清掉；
      * 下面若再次晕倒会重新置 1。 */
     st->recovering = 0;
 
     st->cash -= FB_MEAL;
     st->day_spent += FB_MEAL;
-    logf_(log, logsz, "吃饭 -%d ", FB_MEAL);
+    logf_(body, sizeof body, "吃饭 -%d ", FB_MEAL);
 
     bool used_vehicle = (st->today_lines & ((1u << FB_LINE_DELIVERY) | (1u << FB_LINE_RIDE))) != 0;
     int32_t commute = used_vehicle ? FB_CHARGE : FB_METRO;
     st->cash -= commute;
     st->day_spent += commute;
-    logf_(log, logsz, "交通 -%d ", (int)commute);
+    logf_(body, sizeof body, "交通 -%d ", (int)commute);
 
-    if (st->day % 30 == 0) {
-        int32_t fixed = FB_RENT_MONTHLY + FB_PHONE_MONTHLY + FB_UTILITY_MONTHLY;
-        st->cash -= fixed;
-        st->day_spent += fixed;
-        logf_(log, logsz, "房租水电 -%d ", (int)fixed);
-    }
-
-    /* 租车月租：到期未付则收车、押金不退 */
+    /* 租车月租：到期未付则收车、押金不退。
+     *
+     * 判断必须在房租水电之前：车是挣钱工具，月末那笔房租/手机/水电
+     * 先扣掉的话，本来够交 2800 车租的人会被房租挤到交不起，第二天
+     * 车就没了、押金也不退 —— 这就是玩家反馈的「网约车莫名其妙消失」。
+     * 顺序调过来，工具优先于住处，玩家至少是「真交不起」才丢车。 */
     if (st->has_car && st->day >= st->rent_paid_until) {
         if (st->cash >= FB_RIDE_RENT) {
             st->cash -= FB_RIDE_RENT;
             st->day_spent += FB_RIDE_RENT;
             st->rent_paid_until = (int16_t)(st->day + FB_RIDE_RENT_DAYS);
-            logf_(log, logsz, "车租 -%d ", FB_RIDE_RENT);
+            logf_(head, sizeof head, "续车租 -%d\n", FB_RIDE_RENT);
         } else {
             st->has_car = 0;
             st->rent_paid_until = 0;
-            logf_(log, logsz, "交不起月租，车被收走 ");
+            logf_(head, sizeof head, "交不起车租，车被收走 押金不退\n");
         }
+    }
+
+    if (st->day % 30 == 0) {
+        int32_t fixed = FB_RENT_MONTHLY + FB_PHONE_MONTHLY + FB_UTILITY_MONTHLY;
+        st->cash -= fixed;
+        st->day_spent += fixed;
+        logf_(body, sizeof body, "房租水电 -%d ", (int)fixed);
     }
 
     if (st->debt > 0) {
@@ -832,7 +856,7 @@ void fb_end_day(fb_state_t *st, char *log, size_t logsz) {
         int32_t interest = st->debt / 100;
         if (interest < rate) interest = rate;
         st->debt += interest;
-        logf_(log, logsz, "债息 +%d ", (int)interest);
+        logf_(body, sizeof body, "债息 +%d ", (int)interest);
     }
 
     /* 存款日息：钱躺着也在长，但长得很慢 —— 100 天满打满算也就翻一倍多。
@@ -841,7 +865,7 @@ void fb_end_day(fb_state_t *st, char *log, size_t logsz) {
         int32_t bi = st->savings * FB_BANK_RATE_PCT / 100;
         if (bi < FB_BANK_MIN_INTEREST) bi = FB_BANK_MIN_INTEREST;
         st->savings += bi;
-        logf_(log, logsz, "存款息+%d ", (int)bi);
+        logf_(body, sizeof body, "存款息+%d ", (int)bi);
     }
 
     /* —— 睡眠结算 ——
@@ -874,7 +898,7 @@ void fb_end_day(fb_state_t *st, char *log, size_t logsz) {
     if (debt_before > 0) dh -= (int32_t)debt_before * 2;   /* 旧账每天再叠一层 */
     st->health = (int16_t)clamp32(st->health + dh, 0, 100);
     st->stamina = (int16_t)clamp32(st->stamina + ds, 0, 100);
-    logf_(log, logsz, "睡%uh 健康%+d ", (unsigned)sleep, (int)dh);
+    logf_(body, sizeof body, "睡%uh 健康%+d ", (unsigned)sleep, (int)dh);
 
     /* 瞌睡等级：不只看昨天几点睡，连着欠也困。这个值决定次日白天的状态。 */
     uint8_t drowsy = FB_DROWSY_NONE;
@@ -890,7 +914,7 @@ void fb_end_day(fb_state_t *st, char *log, size_t logsz) {
         if (fb_chance(st, p)) {
             int32_t oh = fb_range(st, 6, 15);
             st->health = (int16_t)clamp32(st->health - oh, 0, 100);
-            logf_(log, logsz, "过劳 -%d 健康 ", (int)oh);
+            logf_(body, sizeof body, "过劳 -%d 健康 ", (int)oh);
         }
     }
 
@@ -910,9 +934,13 @@ void fb_end_day(fb_state_t *st, char *log, size_t logsz) {
             /* 躺医院这一觉算睡了，但只抵旧账：刚欠下的这一天不能一笔勾销，
              * 否则「通宵 → 晕倒 → 债务归零」会变成刷图的捷径。 */
             if (st->sleep_debt > 2) st->sleep_debt -= 2;
-            logf_(log, logsz, "晕倒了 健康-%d 医药-%d ", (int)oh, (int)oc);
+            logf_(body, sizeof body, "晕倒了 健康-%d 医药-%d ", (int)oh, (int)oc);
         }
     }
+
+    /* 重大事件在前、流水在后。head 为空时就是一个普通拼接，
+     * 有内容时收工页第一眼看到的就是「车被收走」这类不能错过的结论。 */
+    snprintf(log, logsz, "%s%s", head, body);
 }
 
 void fb_advance_day(fb_state_t *st) {

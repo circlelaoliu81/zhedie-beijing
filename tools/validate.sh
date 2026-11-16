@@ -83,6 +83,15 @@ else
   cat /tmp/t4.log; bad "息屏测试编译失败"
 fi
 
+# 租车月租：剩余天数、收车/续租文案必须排最前、房租不许挤掉车租。
+# 这一项挂了等于玩家又要经历一次「网约车凭空消失」。
+if gcc -std=c11 -Wall -Wextra -Werror -I main -o /tmp/t_rent tests/test_fb_rent.c \
+      main/fb_game.c 2>/tmp/t4b.log; then
+  if /tmp/t_rent >/tmp/t4b.out 2>&1; then tail -1 /tmp/t4b.out; ok "租车月租与收车可见性"; else cat /tmp/t4b.out; bad "租车月租与收车可见性"; fi
+else
+  cat /tmp/t4b.log; bad "租车测试编译失败"
+fi
+
 step "5/5 固件构建"
 if [ "$DO_BUILD" = "1" ]; then
   # shellcheck disable=SC1091

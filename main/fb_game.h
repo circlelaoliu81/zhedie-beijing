@@ -255,6 +255,8 @@ int32_t fb_run_market(fb_state_t *st, char *log, size_t logsz);
 /* —— 其余工作线 —— */
 bool fb_buy_ebike(fb_state_t *st);
 bool fb_rent_car(fb_state_t *st);
+/* 租车剩余天数（含今天），没车返回 0 —— 行当页用它显示「剩 N 天」 */
+int16_t fb_ride_days_left(const fb_state_t *st);
 bool fb_buy_live_gear(fb_state_t *st);
 int32_t fb_run_delivery(fb_state_t *st, char *log, size_t logsz);
 int32_t fb_run_gig(fb_state_t *st, uint8_t gig, char *log, size_t logsz);

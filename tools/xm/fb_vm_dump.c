@@ -155,6 +155,31 @@ int main(void) {
     }
     dump_view("11_next_home", &g_app);
 
+    /* 网约车租不到期的样子：右侧「剩 N 天」，选中时直接说清到期要交多少。
+     * 车被收走之所以叫「莫名其妙」，就是因为租期在界面上从来不出现。 */
+    fb_app_init(&g_app, 20261115u);
+    press(XM_IN_OK_CLICK);                            /* 封面 → 主面板 */
+    g_app.st.has_car = 1;
+    g_app.st.day = 38;
+    g_app.st.rent_paid_until = 40;
+    g_app.st.cash = 5200;
+    press(XM_IN_OK_CLICK);                            /* 主面板 → 行当页 */
+    g_app.sel = FB_LINE_RIDE;
+    dump_view("03c_ride_due", &g_app);
+
+    /* 收车那天的收工页：结算文案两行，第一行就是「交不起车租，车被收走」。
+     * 原先只画一行 17 个字宽，这句话排在吃饭/交通/房租之后，从没上过屏。 */
+    fb_app_init(&g_app, 20261115u);
+    press(XM_IN_OK_CLICK);
+    g_app.st.has_car = 1;
+    g_app.st.day = 40;
+    g_app.st.rent_paid_until = 40;
+    g_app.st.cash = 1000;
+    g_app.st.hours_used = 8;
+    g_app.sel = FB_MENU_ENDDAY;
+    press(XM_IN_OK_CLICK);
+    dump_view("09b_report_seized", &g_app);
+
     /* 三选项事件（城管来了）单出一张：第三条「托熟人」曾经在屏上
      * 根本不存在，这张图就是那个 bug 的回归依据。 */
     {
