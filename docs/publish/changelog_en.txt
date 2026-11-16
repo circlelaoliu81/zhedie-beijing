@@ -1,0 +1,1 @@
+New: the screen turns off after 60 seconds without input, so a unit left on the table no longer stays lit all night. Only the backlight goes off — the picture stays on screen, any key lights it instantly, and that first press never triggers an action.

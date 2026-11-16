@@ -1,7 +1,7 @@
 Fully offline, no Wi-Fi setup needed. Turn it on and play.
 
-1. On the cover, use Up/Down to choose starting cash and press OK. Once you have a run in progress, the first cover item becomes "Continue" — picking it resumes your saved day; picking a new start overwrites the old run.
-2. On the main panel, move down to "Go to work" and press OK to choose a trade. Stalls and day labor need no capital; delivery, ride-hailing and livestreaming require equipment first. If cash falls short you are taken to the loan page automatically.
-3. Press OK on a trade page to start the shift. When it finishes you return to the main panel and can take a second job the same day. The 24-hour bar under the scene shows hours already spent — the further right it gets, the riskier.
-4. When you have earned enough, pick "Clock off" to settle the day's income and expenses, or "Take a day off" to sleep straight into tomorrow. Dozing off is announced in the bottom line and cuts your income.
-5. Long-press OK to go back one level. Powering off never loses progress.
+1. On the cover, use Up/Down to pick starting cash and press OK. After your first run the top item becomes "Continue", which resumes your saved day; picking a new start overwrites the old run.
+2. On the main panel, move to "Go to work" and press OK to choose a trade. Stalls and day labor need no capital; delivery, ride-hailing and livestreaming need equipment first — if cash is short you are taken to the loan page.
+3. Press OK on a trade page to work a shift. It returns you to the main panel and you can take a second job the same day. The 24-hour bar at the bottom shows the hours already spent — the further right it goes, the riskier.
+4. Once you have earned enough, pick "Clock off" to settle the day, or "Take a day off" to sleep straight into tomorrow. When sleep is short the bottom line warns of dozing off and cut income.
+5. Long-press OK to go back one level. After 60 idle seconds the screen turns off to save power; any key lights it again, and that first press does not trigger an action. Powering off never loses progress.
