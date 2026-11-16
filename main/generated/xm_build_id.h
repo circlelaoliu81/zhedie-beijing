@@ -2,10 +2,10 @@
 #pragma once
 
 #define XM_APP_VERSION     "1.0.0"
-#define XM_BUILD_ID        "df19b70"
+#define XM_BUILD_ID        "8770b02"
 #define XM_DATA_EPOCH      "2026-01-01"
 #define XM_IDF_VERSION     "v5.5.3"
 #define XM_LVGL_VERSION    "9.5.0"
 #define XM_FONTCONV_VERSION "1.5.3"
-#define XM_CHARSET_SHA256  "1178c53b0ed248941ecb122c703d4d969ddf4b4c1c91a540596b6270ec23cd69"
+#define XM_CHARSET_SHA256  "5ca8135a1cd64370a486c652db5def14b045fef36761faaad70442cf164c21eb"
 #define XM_DATA_SHA256     "960cb0969bd8c96c474bd0dd56d5f69124dd8a11cbad66b923f2f64642fe2772"
