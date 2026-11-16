@@ -2,7 +2,7 @@
 #pragma once
 
 #define XM_APP_VERSION     "1.0.0"
-#define XM_BUILD_ID        "68be69b"
+#define XM_BUILD_ID        "55dcfc4"
 #define XM_DATA_EPOCH      "2026-01-01"
 #define XM_IDF_VERSION     "v5.5.3"
 #define XM_LVGL_VERSION    "9.5.0"
