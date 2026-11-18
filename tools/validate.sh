@@ -101,6 +101,15 @@ else
   cat /tmp/t4c.log; bad "名声测试编译失败"
 fi
 
+# 父母支援：一局只给一次钱，第二次不许静默。过滤靠 special 标记而不是
+# 事件表下标 —— 写死 i==5 那次的后果就是钱点了不到账、屏幕还没反应。
+if gcc -std=c11 -Wall -Wextra -Werror -I main -o /tmp/t_parents tests/test_fb_parents.c \
+      main/fb_game.c 2>/tmp/t4d.log; then
+  if /tmp/t_parents >/tmp/t4d.out 2>&1; then tail -1 /tmp/t4d.out; ok "父母支援只给一次且不静默"; else cat /tmp/t4d.out; bad "父母支援只给一次且不静默"; fi
+else
+  cat /tmp/t4d.log; bad "父母支援测试编译失败"
+fi
+
 step "5/5 固件构建"
 if [ "$DO_BUILD" = "1" ]; then
   # shellcheck disable=SC1091

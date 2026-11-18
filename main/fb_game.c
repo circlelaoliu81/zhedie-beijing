@@ -196,6 +196,18 @@ static const fb_event_t k_events[FB_EVENT_POOL] = {
 #define EV_IDX_DROWSY_CRASH 18
 #define EV_IDX_DROWSY_SLEEP 19
 
+/* 「妈打来电话」一局只给一次钱（family_used）。识别靠选项里的 special==1
+ * 标记，不靠事件表下标 —— 原先写死 i==5，而表里 i==5 是「刮刮乐」，
+ * 父母事件排在 i==4，于是用过之后仍会被反复抽到：玩家再选「接电话」，
+ * 结算里 family_used 已置 1，整段静默跳过，2200 一分不进口袋。 */
+static bool ev_is_family(const fb_event_t *e) {
+    if (!e) return false;
+    for (uint8_t k = 0; k < e->choice_n; ++k) {
+        if (e->choices[k].special == 1) return true;
+    }
+    return false;
+}
+
 static const char *k_end_title[] = {
     "", "登上北漂富人榜", "在北京站住了脚", "勉强活着",
     "收拾行李回了老家", "露宿桥洞", "病倒在冬天",
@@ -975,7 +987,7 @@ void fb_rest(fb_state_t *st) {
         const fb_event_t *e = &k_events[i];
         if (e->line_mask && !(st->today_lines & e->line_mask)) continue;
         if (e->once && (st->once_mask & (1u << i))) continue;
-        if (i == 5 && st->family_used) continue;   /* ev_parents 用过后不再抽 */
+        if (st->family_used && ev_is_family(e)) continue;   /* 父母支援一局一次 */
         /* 瞌睡专属事件：只有白天犯困才进池。睡不够的人，意外就是比别人的多。 */
         if ((i == EV_IDX_DROWSY_CRASH || i == EV_IDX_DROWSY_SLEEP) &&
             st->drowsy == FB_DROWSY_NONE) {
@@ -1039,6 +1051,11 @@ void fb_apply_choice(fb_state_t *st, const fb_event_t *ev, uint8_t choice,
                 st->reputation = (int16_t)clamp32(st->reputation + FB_FAMILY_REP, 0, 100);
                 logf_(log, logsz, "父母支援 +%d，债清了，名声+%d",
                       FB_FAMILY_CASH, FB_FAMILY_REP);
+            } else {
+                /* 抽签池已排除这条，正常流程进不来。但真进来了也绝不静默：
+                 * 玩家点了「父母支援2200」结果屏幕上什么变化都没有，
+                 * 只会当成又一个丢钱的 bug。 */
+                logf_(log, logsz, "这次家里也紧，没凑出钱");
             }
             break;
         case 2:   /* 赌一把：五五开 */
