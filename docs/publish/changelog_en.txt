@@ -1,7 +1,7 @@
-This version makes several things easier to read and understand.
+This version is about choices that used to go unanswered.
 
-Stall locations now say "foot traffic ×130%" instead of a bare "×130%", so it no longer looks like prices are higher there. All eight locations actually charge the same to buy and sell; the multiplier only decides how many items sell today, and each item's buying price, selling price and today's demand are shown on its own row.
+After a random event, the game used to just flip to the next page and say nothing — a 250 fine, four points of health, or four hundred followers all vanished without a word. Every choice now leaves its result on the bottom line of the main panel: cash, health, stamina, reputation and followers, with the exact amount that changed. Losing followers also tells you how many.
 
-In random events, "it depends on your reputation" used to be hollow — reputation was invisible, affected nothing, and pleas always succeeded for free. Events now show your current reputation, a plea only works at 50 or above (otherwise you pay the fine), and every reputation change appears in the result line. The real costs and gains of choices like filing an appeal, gambling on a dispute, or taking your parents' call are now spelled out, so you are not surprised by lost health or reputation afterwards.
+"Take your parents' call, they send 2200" had a separate bug: the event could come up again in the same run, and choosing to answer a second time paid nothing while the screen stayed silent. Now it appears at most once per run; if it ever does show up again, it says plainly that the family could not put the money together this time.
 
-Two small eyesores are fixed too: a lone closing punctuation mark no longer gets its own line, and the bank deposit row now says "1% daily" to match the loan row.
+Two more actions that used to press OK in silence now confirm themselves: buying stock shows what you bought and what it cost, and expanding storage shows the new capacity. If an event result lands on a day with a more urgent notice — the car being repossessed, for instance — the urgent one keeps the line.
