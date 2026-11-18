@@ -700,8 +700,11 @@ static void render_market(fb_app_t *app, xm_view_t *v) {
 
     /* 7 项要塞进 134..284：每项 21 行距（20 高），出摊卡 24 高。
      * 早先 24 行距 + 5 货 + 出摊 = 150，加上点位行就压到提示行了。 */
+    /* ×号必须写明乘的是客流（今天最多能卖几份），不是进价/卖价。
+     * 玩家把「夜市 ×130%」读成「这里卖得贵」是合理误解 ——
+     * 八个点位的进价卖价其实一模一样，货品行才写着价格。 */
     draw_card(app, v, 6, 134, 228, 20, app->sel == 0, true, FB_ICO_CAL,
-              pool_put(app, "点位 %s ×%u%%", spots[spot].name,
+              pool_put(app, "点位 %s 客流×%u%%", spots[spot].name,
                        spots[spot].bias_pct));
 
     for (uint8_t i = 0; i < (uint8_t)n; ++i) {
