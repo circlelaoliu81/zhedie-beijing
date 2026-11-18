@@ -1,5 +1,7 @@
-Two problems that used to trap players are fixed.
+This version makes several things easier to read and understand.
 
-On the random-event page, Up/Down did nothing: the highlight never moved and OK always ran the first option, so a "run or pay the fine" choice was really just "pay the fine". Selection works now, and the third option that was never drawn on screen appears as well.
+Stall locations now say "foot traffic ×130%" instead of a bare "×130%", so it no longer looks like prices are higher there. All eight locations actually charge the same to buy and sell; the multiplier only decides how many items sell today, and each item's buying price, selling price and today's demand are shown on its own row.
 
-Ride-hailing no longer disappears without explanation: the trade page shows how many days of lease are left, states the rent due before it expires, and if the car is repossessed both the evening report and the next morning's main panel say why and note that the deposit is gone. Monthly rent is now settled before apartment rent, so rent can no longer squeeze out a lease you could actually afford.
+In random events, "it depends on your reputation" used to be hollow — reputation was invisible, affected nothing, and pleas always succeeded for free. Events now show your current reputation, a plea only works at 50 or above (otherwise you pay the fine), and every reputation change appears in the result line. The real costs and gains of choices like filing an appeal, gambling on a dispute, or taking your parents' call are now spelled out, so you are not surprised by lost health or reputation afterwards.
+
+Two small eyesores are fixed too: a lone closing punctuation mark no longer gets its own line, and the bank deposit row now says "1% daily" to match the loan row.
