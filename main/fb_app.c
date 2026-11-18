@@ -334,6 +334,18 @@ static uint8_t draw_para(fb_app_t *app, xm_view_t *v, int x, int y,
             p += len;
             ++count;
         }
+        /* 末尾只剩一个标点时并回上一行：一行 13 字留了 1 字余量（224/16=14），
+         * 第 14 个标点仍在宽度内。「…被拦下」+「。」被切成两行，
+         * 第二行光秃秃一个句号，看上去像渲染坏了。 */
+        if (*p && count >= chars_per_line && p[xm_utf8_char_len((uint8_t)*p)] == '\0') {
+            static const char *const k_marks[] = { "，", "。", "！", "？", "；", "：", "、", "…" };
+            for (size_t m = 0; m < sizeof(k_marks) / sizeof(k_marks[0]); ++m) {
+                size_t ml = strlen(k_marks[m]);
+                if (strncmp(p, k_marks[m], ml) != 0) continue;
+                if (n + ml < sizeof(buf)) { memcpy(buf + n, p, ml); n += ml; p += ml; }
+                break;
+            }
+        }
         buf[n] = '\0';
         /* 按行宽硬切会把词劈开 —— 「因为希望这东西我买不起」被切成
          * 「…希望这东」/「西我买不起」，读起来是断的。中文没有词边界可断，
@@ -838,8 +850,10 @@ static void render_finance(fb_app_t *app, xm_view_t *v) {
     draw_card_ex(app, v, 6, 202, 228, 27, app->sel == 2, st->debt > 0,
                  FB_ICO_CASH, 0x4FA88Bu, "还 500 欠款",
                  pool_put(app, "欠%d", (int)st->debt), FB_COLOR_WARN);
+    /* 右侧写明「日息」：只写 +1% 会被读成存一次白得 1%，
+     * 旁边网贷那行就写了「日息」，两处必须对称。 */
     draw_card_ex(app, v, 6, 233, 228, 27, app->sel == 3, st->cash > 0,
-                 FB_ICO_BOX, 0x4FA88Bu, "存 1000 进银行", "+1%", XM_COLOR_BLUE);
+                 FB_ICO_BOX, 0x4FA88Bu, "存 1000 进银行", "日息1%", XM_COLOR_BLUE);
     draw_card_ex(app, v, 6, 264, 228, 27, app->sel == 4, st->savings > 0,
                  FB_ICO_BOX, 0x4FA88Bu, "取 1000 出来", "-1000", FB_COLOR_WARN);
     /* 从行当页被引到这里时底部会带一句「还缺 N 元」，玩家知道该按哪一项 */
@@ -917,6 +931,12 @@ static void render_event(fb_app_t *app, xm_view_t *v) {
     const fb_event_t *e = app->ev;
     if (!e) return;
     draw_status(app, v, FB_ICO_INFO, e->title);
+    /* 名声必须摆在选选项之前看得见的地方。事件里有「名声满 50 免罚」，
+     * 玩家不知道自己名声多少就没法选 —— 这正是「点位 ×130%」那类毛病：
+     * 选项要求一个玩家看不到的数。够 50 上强调色，一眼知道求情能不能成。 */
+    v_line(v, 176, 4, 58, 12,
+           app->st.reputation >= 50 ? FB_COLOR_ACCENT : XM_COLOR_SUBINK,
+           XM_ALIGN_RIGHT, pool_put(app, "名声%d", (int)app->st.reputation));
     draw_scene(v, FB_SC_EVENT);
 
     draw_para(app, v, 8, 140, e->text, FB_BODY_W, 22, 16, XM_COLOR_INK, 3);

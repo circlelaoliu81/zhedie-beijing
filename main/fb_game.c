@@ -133,9 +133,9 @@ static const fb_event_t k_events[FB_EVENT_POOL] = {
         { "交给岗亭，名声 +3", 0, 0, 0, 3, 0, 0 } } },
     { "路口查车", "交警设卡，电动车没牌被拦下。", 5, false, 1u << FB_LINE_DELIVERY, 2,
       { { "认罚，-200", -200, 0, 0, -1, 0, 0 },
-        { "求情，看名声", 0, 0, 0, 1, 0, 0 } } },
+        { "求情，名声满50免罚", -200, 0, 0, 0, 0, 4 } } },
     { "妈打来电话", "妈听出你声音哑了，问要不要回家。", 4, false, 0, 2,
-      { { "接这通电话（第二条命）", 0, 0, 0, 0, 0, 1 },
+      { { "接电话，父母支援2200", 0, 0, 0, 0, 0, 1 },
         { "先不接", 0, 0, 0, 0, 0, 0 } } },
     { "刮刮乐中五十", "便利店刮刮乐居然中了五十。", 3, true, 0, 1,
       { { "收下，+50", 50, 0, 0, 0, 0, 0 } } },
@@ -147,7 +147,7 @@ static const fb_event_t k_events[FB_EVENT_POOL] = {
         { "托熟人，-150", -150, 0, 0, 0, 0, 0 } } },
     { "视频被举报", "你蹭的热点踩了线，号被限流。", 5, false, 1u << FB_LINE_LIVE, 2,
       { { "删了息事，掉粉四成", 0, 0, 0, -2, 0, 3 },
-        { "硬刚到底，赌一把", 0, 0, 0, 1, 0, 2 } } },
+        { "硬刚，五五开赌粉", 0, 0, 0, 1, 0, 2 } } },
     { "催债电话", "网贷催收一天打了八个，利息越滚越大。", 4, false, 0, 2,
       { { "先还一点，-300", -300, 0, 0, 0, 0, 0 },
         { "装没听见，名声 -3", 0, 0, 0, -3, 0, 0 } } },
@@ -162,13 +162,15 @@ static const fb_event_t k_events[FB_EVENT_POOL] = {
         { "挂急诊，-600", -600, 8, 0, 0, 0, 0 } } },
     { "平台冻结提现", "风控把你标了，今天的收入提不出来。", 4, false,
       (1u << FB_LINE_DELIVERY) | (1u << FB_LINE_RIDE) | (1u << FB_LINE_LIVE), 2,
-      { { "写申诉，名声 +2", 0, -4, 0, 2, 0, 0 },
+      { { "写申诉，-4 健康 +2 名声", 0, -4, 0, 2, 0, 0 },
         { "认栽，名声 -1", 0, 0, 0, -1, 0, 0 } } },
     { "运管查车", "路口临检，顺风车单被抓现行。", 4, false, 1u << FB_LINE_RIDE, 2,
       { { "认罚，-260", -260, 0, 0, 0, 0, 0 },
-        { "装糊涂，看名声", 0, 0, 0, 1, 0, 0 } } },
+        { "装糊涂，名声满50免罚", -260, 0, 0, 0, 0, 4 } } },
     { "同行扎堆", "夜市新来三家摊，跟你卖一样的货。", 4, false, 1u << FB_LINE_MARKET, 2,
-      { { "降价抢客，名声 -1", 0, 0, 0, -1, 0, 0 },
+      /* 原写「降价抢客」，但代码没有任何客流收益，只是白扣名声 ——
+       * 又一句承诺了不存在的机制的文案。改为照实说。 */
+      { { "降价无客，名声 -1", 0, 0, 0, -1, 0, 0 },
         { "守着，认了", 0, 0, 0, 0, 0, 0 } } },
     { "刷到朋友圈", "同学晒了新车新房，你缩在隔断间里。", 3, false, 0, 2,
       { { "关掉手机，+2 健康", 0, 2, 0, 0, 0, 0 },
@@ -1035,7 +1037,8 @@ void fb_apply_choice(fb_state_t *st, const fb_event_t *ev, uint8_t choice,
                 st->debt = 0;
                 st->health = (int16_t)clamp32(st->health + FB_FAMILY_HEALTH, 0, 100);
                 st->reputation = (int16_t)clamp32(st->reputation + FB_FAMILY_REP, 0, 100);
-                logf_(log, logsz, "父母支援 +%d，债清了", FB_FAMILY_CASH);
+                logf_(log, logsz, "父母支援 +%d，债清了，名声+%d",
+                      FB_FAMILY_CASH, FB_FAMILY_REP);
             }
             break;
         case 2:   /* 赌一把：五五开 */
@@ -1047,14 +1050,31 @@ void fb_apply_choice(fb_state_t *st, const fb_event_t *ev, uint8_t choice,
                 int32_t lost = (int32_t)(st->fans / 2);
                 st->fans = (uint16_t)(st->fans - lost);
                 st->reputation = (int16_t)clamp32(st->reputation - 4, 0, 100);
-                logf_(log, logsz, "赌输了，掉粉 %d", (int)lost);
+                logf_(log, logsz, "赌输了，掉粉 %d 名声-4", (int)lost);
             }
             break;
         case 3:   /* 掉粉四成 */
             st->fans = (uint16_t)(st->fans - st->fans * 4 / 10);
             break;
+        case 4:   /* 名声求情：满 50 免罚，不够就照罚。
+                   * 原先文案写「看名声」，代码却从不读名声、无条件免罚 ——
+                   * 名声于是成了只写不读的死属性，玩家拿它做决定全是假的。 */
+            if (st->reputation >= 50) {
+                st->cash -= c->cash;   /* c->cash 为负，这里把先扣的罚款退回 */
+                logf_(log, logsz, "名声 %d，免罚", (int)st->reputation);
+            } else {
+                logf_(log, logsz, "名声 %d 不够，照罚 %d",
+                      (int)st->reputation, (int)-c->cash);
+            }
+            break;
         default:
             break;
+    }
+    /* 多数选项只改名声，结果行原本是空的 —— 玩家花了名声却毫不知情。
+     * 名声现在真决定查车能不能免罚，所以每次增减都要在结果里看得见。 */
+    if (c->rep && log && logsz) {
+        size_t used = strlen(log);
+        if (used + 12 < logsz) snprintf(log + used, logsz - used, " 名声%+d", (int)c->rep);
     }
 }
 

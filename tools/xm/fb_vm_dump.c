@@ -193,6 +193,19 @@ int main(void) {
             dump_view("10b_event3", &g_app);
             break;
         }
+        /* 「求情，名声满50免罚」：名声必须显示在选之前的位置，
+         * 够 50 上强调色。原先名声既看不见又不参与判定，选项纯属骗人。 */
+        for (size_t i = 0; i < en; ++i) {
+            if (strcmp(evs[i].title, "路口查车") != 0) continue;
+            g_app.ev = &evs[i];
+            g_app.scr = FB_SCR_EVENT;
+            g_app.sel = 1;
+            g_app.st.reputation = 55;
+            dump_view("10c_event_fame_ok", &g_app);
+            g_app.st.reputation = 40;
+            dump_view("10d_event_fame_low", &g_app);
+            break;
+        }
         g_app.ev = NULL;
     }
 

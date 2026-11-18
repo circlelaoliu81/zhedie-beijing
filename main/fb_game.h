@@ -121,7 +121,7 @@ typedef struct {
     int16_t stamina;
     int16_t rep;
     int16_t fans;
-    uint8_t special;   /* 0=无 1=第二条命(父母) 2=赌一把 3=掉粉4成 */
+    uint8_t special;   /* 0=无 1=第二条命 2=赌一把 3=掉粉4成 4=名声求情免罚 */
 } fb_choice_t;
 
 typedef struct {

@@ -92,6 +92,15 @@ else
   cat /tmp/t4b.log; bad "租车测试编译失败"
 fi
 
+# 名声判定：求情必须真读名声、门槛与文案一致、名声增减要在结果行看得见。
+# 这一项挂了等于玩家又在为一个看不见的属性做假权衡。
+if gcc -std=c11 -Wall -Wextra -Werror -I main -o /tmp/t_fame tests/test_fb_event_fame.c \
+      main/fb_game.c 2>/tmp/t4c.log; then
+  if /tmp/t_fame >/tmp/t4c.out 2>&1; then tail -1 /tmp/t4c.out; ok "名声判定与文案一致"; else cat /tmp/t4c.out; bad "名声判定与文案一致"; fi
+else
+  cat /tmp/t4c.log; bad "名声测试编译失败"
+fi
+
 step "5/5 固件构建"
 if [ "$DO_BUILD" = "1" ]; then
   # shellcheck disable=SC1091
