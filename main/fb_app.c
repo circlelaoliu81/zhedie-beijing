@@ -1283,6 +1283,15 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
                                      app->st.inv_total >= app->st.storage
                                          ? "仓储满了，先扩容"
                                          : "现金不够进货");
+                        } else {
+                            /* 买成了也要说一声：不然按完 OK 屏幕上只有
+                             * 「有 N」悄悄加一，玩家会怀疑钱花了货没到。 */
+                            size_t ni = 0;
+                            const fb_item_t *items = fb_item_table(&ni);
+                            snprintf(app->toast, sizeof(app->toast),
+                                     "%s +1，进货 -%d",
+                                     kind < ni ? items[kind].name : "货",
+                                     (int)(kind < ni ? items[kind].cost : 0));
                         }
                     } else if (can_run(app, FB_LINE_MARKET)) {
                         fb_run_market(&app->st, app->toast, sizeof(app->toast));
@@ -1383,6 +1392,11 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
         case FB_SCR_STORAGE:
             if (!fb_expand_storage(&app->st)) {
                 snprintf(app->toast, sizeof(app->toast), "现金不够扩容");
+            } else {
+                /* 花了钱必须有回执：不加这句，按 OK 之后只有角落里的
+                 * 格数悄悄变了，玩家只会怀疑钱扣了没办成事。 */
+                snprintf(app->toast, sizeof(app->toast), "扩容到 %u 格",
+                         (unsigned)app->st.storage);
             }
             break;
 
@@ -1404,12 +1418,21 @@ void fb_app_on_key(fb_app_t *app, xm_input_t in) {
                 msg[0] = '\0';
                 fb_apply_choice(&app->st, app->ev, app->sel, msg,
                                 sizeof(msg));
-                if (msg[0]) {
+                app->ev = NULL;
+                /* 先推进、再回填结果。advance_after_event 一进来就把 toast
+                 * 清零（那是给收工流水用的：新的一天不该带着昨天的账），
+                 * 原来先写 toast 再推进，等于刚写完就被擦掉 —— 事件结果
+                 * 从来没在屏幕上出现过。顺序换过来，玩家的选择才有回音。 */
+                advance_after_event(app);
+                /* 丢车/欠觉/晕倒那几行更贵，不能被事件结果挤掉 ——
+                 * 「车被收走」再被吞一次就又是老问题。没有那些提示时，
+                 * 这一行留给玩家刚做的那次选择。 */
+                if (msg[0] && app->toast[0] == '\0') {
                     snprintf(app->toast, sizeof(app->toast), "%s", msg);
                 }
-                app->ev = NULL;
+            } else {
+                advance_after_event(app);
             }
-            advance_after_event(app);
             break;
 
         case FB_SCR_ENDING:

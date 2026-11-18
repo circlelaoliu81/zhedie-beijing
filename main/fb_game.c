@@ -1070,9 +1070,13 @@ void fb_apply_choice(fb_state_t *st, const fb_event_t *ev, uint8_t choice,
                 logf_(log, logsz, "赌输了，掉粉 %d 名声-4", (int)lost);
             }
             break;
-        case 3:   /* 掉粉四成 */
+        case 3: {  /* 掉粉四成：粉丝数真的变了就必须说出来，否则玩家只是
+                    * 觉得「粉丝莫名少了一截」，又是一次无声的损失。 */
+            const uint16_t before = st->fans;
             st->fans = (uint16_t)(st->fans - st->fans * 4 / 10);
+            logf_(log, logsz, "掉粉 %d", (int)(before - st->fans));
             break;
+        }
         case 4:   /* 名声求情：满 50 免罚，不够就照罚。
                    * 原先文案写「看名声」，代码却从不读名声、无条件免罚 ——
                    * 名声于是成了只写不读的死属性，玩家拿它做决定全是假的。 */
@@ -1087,11 +1091,28 @@ void fb_apply_choice(fb_state_t *st, const fb_event_t *ev, uint8_t choice,
         default:
             break;
     }
-    /* 多数选项只改名声，结果行原本是空的 —— 玩家花了名声却毫不知情。
-     * 名声现在真决定查车能不能免罚，所以每次增减都要在结果里看得见。 */
-    if (c->rep && log && logsz) {
-        size_t used = strlen(log);
-        if (used + 12 < logsz) snprintf(log + used, logsz - used, " 名声%+d", (int)c->rep);
+    /* 结果行不能空着。special 分支自己写了日志的，这里只补名声增减；
+     * 什么都没写的（认罚、挂急诊、换屏……纯数值选项），就按实际增量拼
+     * 一句 —— 原先这类选项一句提示都没有，玩家点完只看到页面跳走，
+     * 钱少了也不说，事后一算就是「钱莫名少了」。 */
+    if (log && logsz) {
+        if (log[0] == '\0') {
+            char buf[FB_LOG_SIZE];
+            buf[0] = '\0';
+            if (c->cash) logf_(buf, sizeof buf, "钱%+d ", (int)c->cash);
+            if (c->health) logf_(buf, sizeof buf, "健康%+d ", (int)c->health);
+            if (c->stamina) logf_(buf, sizeof buf, "精力%+d ", (int)c->stamina);
+            if (c->rep) logf_(buf, sizeof buf, "名声%+d ", (int)c->rep);
+            if (c->fans) logf_(buf, sizeof buf, "粉丝%+d ", (int)c->fans);
+            size_t n = strlen(buf);
+            while (n > 0 && buf[n - 1] == ' ') buf[--n] = '\0';
+            if (n > 0) snprintf(log, logsz, "%s", buf);
+        } else if (c->rep) {
+            size_t used = strlen(log);
+            if (used + 12 < logsz) {
+                snprintf(log + used, logsz - used, " 名声%+d", (int)c->rep);
+            }
+        }
     }
 }
 

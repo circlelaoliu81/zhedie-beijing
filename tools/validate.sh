@@ -110,6 +110,15 @@ else
   cat /tmp/t4d.log; bad "父母支援测试编译失败"
 fi
 
+# 事件结果反馈：任何会改状态的选项都必须有结果文案，且 once 事件下标要
+# 落在 once_mask 的 8 位之内。这一项挂了等于又回到「点了没反应」。
+if gcc -std=c11 -Wall -Wextra -Werror -I main -o /tmp/t_fb tests/test_fb_event_feedback.c \
+      main/fb_game.c 2>/tmp/t4e.log; then
+  if /tmp/t_fb >/tmp/t4e.out 2>&1; then tail -1 /tmp/t4e.out; ok "事件结果都有反馈"; else cat /tmp/t4e.out; bad "事件结果都有反馈"; fi
+else
+  cat /tmp/t4e.log; bad "反馈测试编译失败"
+fi
+
 step "5/5 固件构建"
 if [ "$DO_BUILD" = "1" ]; then
   # shellcheck disable=SC1091

@@ -197,6 +197,47 @@ static void test_event_choices(void) {
     printf("  event choices OK\n");
 }
 
+/* 事件结果必须真的留在屏幕上。FB_SCR_EVENT 原先先写 toast、再调
+ * advance_after_event，而后者一进来就把 toast 清零（那是给收工流水用的）
+ * —— 等于刚写完就被擦掉，玩家选完「认罚 -250」页面直接跳走，一个字都没有。 */
+static void test_event_result_visible(void) {
+    fb_app_t a;
+    fb_app_init(&a, 11u);
+    press(&a, XM_IN_OK_CLICK);              /* 封面 → 主面板 */
+
+    size_t n = 0;
+    const fb_event_t *t = fb_event_table(&n);
+    const fb_event_t *fine = NULL;
+    for (size_t i = 0; i < n; ++i) {
+        if (strcmp(t[i].title, "路口查车") == 0) { fine = &t[i]; break; }
+    }
+    if (!fine) {
+        printf("  FAIL 找不到「路口查车」事件\n");
+        ++s_fail;
+        return;
+    }
+
+    a.st.cash = 3000;
+    a.scr = FB_SCR_EVENT;
+    a.ev = fine;
+    a.sel = 0;                              /* 认罚 -200 */
+
+    press(&a, XM_IN_OK_CLICK);
+    if (a.st.cash != 2800) {
+        printf("  FAIL 事件罚款没生效（cash=%d）\n", (int)a.st.cash);
+        ++s_fail;
+    }
+    if (a.scr != FB_SCR_HOME) {
+        printf("  FAIL 事件后没回主面板（scr=%u）\n", (unsigned)a.scr);
+        ++s_fail;
+    }
+    if (a.toast[0] == '\0' || !strstr(a.toast, "-200")) {
+        printf("  FAIL 事件结果没上屏（toast=\"%s\"）\n", a.toast);
+        ++s_fail;
+    }
+    printf("  event result OK (toast=%s)\n", a.toast);
+}
+
 int main(void) {
     printf("test_fb_app_pages\n");
     fb_app_t app;
@@ -354,6 +395,9 @@ int main(void) {
 
     /* 事件页上下键必须能换到第二、第三项 */
     test_event_choices();
+
+    /* 事件结果必须留在屏幕上，不能被推进逻辑擦掉 */
+    test_event_result_visible();
 
     if (s_fail) {
         printf("test_fb_app_pages: FAIL (%d)\n", s_fail);
